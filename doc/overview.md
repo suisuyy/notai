@@ -63,4 +63,8 @@ Source (`src/`)
  - Replacing selections with `innerHTML` strings. Prefer `textContent` to strip formatting safely, then explicitly add structural nodes (e.g., `<br>`) as needed.
  - Losing caret position after DOM surgery. After inserts/replacements, programmatically place the selection at a sensible position using `Range` and `Selection` APIs.
  - Attaching duplicate event listeners on re-init. Remove or de-dupe listeners when re-rendering toolbars or switching views.
- - Invoking `document.execCommand('removeFormat')` outside a selection. Ensure the intended content is selected first; this API is legacy and should be used carefully.
+- Invoking `document.execCommand('removeFormat')` outside a selection. Ensure the intended content is selected first; this API is legacy and should be used carefully.
+ - Wrapping selections with strings. Avoid `innerHTML = selectedText`; use `Range.cloneContents()` and `appendChild(fragment)` to preserve formatting safely.
+ - Not checking selection containment. Before DOM surgery, verify the selection lives under the editor container to prevent exceptions or misplaced inserts.
+ - Inconsistent hit targets in the toolbar. Keep interactive buttons at least ~32px tall/wide for usability; use targeted selectors (e.g., `#addBlockBtn`) rather than broad rules that affect all buttons.
+ - Overriding CSS hooks used by JS. Do not remove or rename classes/IDs (like `.block`, `.dropdown`, `#addBlockBtn`) that scripts depend on; instead, extend styles with additive rules.

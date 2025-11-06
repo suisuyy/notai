@@ -699,8 +699,23 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
       // Add block button
       if (addBlockBtn) {
+        // Preserve selection: prevent focus change on mousedown and cache selection
+        addBlockBtn.addEventListener('mousedown', (e) => {
+          this._savedSelection = this.captureSelection();
+          e.preventDefault(); // keep selection from collapsing due to focus change
+        });
         addBlockBtn.addEventListener('click', () => {
+          // If selection collapsed/not in editor, restore cached selection for block wrapping
+          const sel = window.getSelection();
+          const hasRange = sel && sel.rangeCount > 0;
+          const rng = hasRange ? sel.getRangeAt(0) : null;
+          const inEditor = rng ? this.editor.contains(rng.commonAncestorContainer) : false;
+          const emptySel = !rng || rng.collapsed || (sel.toString().trim().length === 0);
+          if ((!inEditor || emptySel) && this._savedSelection) {
+            this.restoreSelection(this._savedSelection);
+          }
           this.addNewBlock();
+          this._savedSelection = null;
         });
       }
 

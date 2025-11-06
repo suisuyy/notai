@@ -23,5 +23,4 @@ make sure the UI looks clean, modern , by using minimal style.
 
 
 # newtask
-(empty)
-
+when user login out or update app, it will prompt user to login use system confirm or prompt user reload now, the system prompt and login is not good, implement them in the UI now to replace them

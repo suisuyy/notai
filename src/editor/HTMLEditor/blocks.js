@@ -96,8 +96,49 @@ const mixin = {
   },
 
   addNewBlock() {
-    const selection = window.getSelection();
+    // Try to use current selection; if it's gone due to toolbar click,
+    // prefer any cached selection restored by core before calling this.
+    let selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      // As a fallback, try restoring last saved selection (if present)
+      if (this._savedSelection) {
+        this.restoreSelection(this._savedSelection);
+        selection = window.getSelection();
+      }
+    }
     const selectedText = selection.toString().trim();
+
+    // If there is a non-collapsed selection inside the editor, wrap it into a new block
+    if (selection.rangeCount > 0) {
+      const selRange = selection.getRangeAt(0);
+      const isInEditor = this.editor.contains(selRange.commonAncestorContainer);
+      const hasContent = !selRange.collapsed && selectedText.length > 0;
+      if (isInEditor && hasContent) {
+        const block = document.createElement('div');
+        block.className = 'block';
+        // Preserve formatting by cloning the selection
+        const fragment = selRange.cloneContents();
+        block.appendChild(fragment);
+
+        block.classList.add('highlight');
+        setTimeout(() => block.classList.remove('highlight'), 1000);
+
+        // Replace selection with the new block and add spacing after
+        selRange.deleteContents();
+        selRange.insertNode(block);
+        block.after(document.createElement('br'));
+
+        // Place caret at start of the new block
+        const newRange = document.createRange();
+        newRange.selectNodeContents(block);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        this.currentBlock = block;
+        block.focus();
+        return block;
+      }
+    }
 
     // if (selectedText) {
     //   // Create a new block element
@@ -145,7 +186,14 @@ const mixin = {
     }, 1000);
 
     // Get current selection and find closest block
-    const range = selection.getRangeAt(0);
+    let range;
+    if (selection && selection.rangeCount > 0) {
+      range = selection.getRangeAt(0);
+    } else {
+      range = document.createRange();
+      range.selectNodeContents(this.editor);
+      range.collapse(false);
+    }
     let currentBlock = this.currentBlock;
 
     // Insert the block after the cursor position
