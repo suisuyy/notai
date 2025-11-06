@@ -920,6 +920,26 @@ pre code {
     white-space: nowrap;
 }
 
+/* Extras row in AI toolbar */
+.ai-extras {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.use-comment-toggle {
+    font-size: 12px;
+    color: #333;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.use-comment-toggle input {
+    width: 14px;
+    height: 14px;
+}
+
 @media (max-width: 480px) {}
 
 /* Mobile-safe media sizing and wrapping */
