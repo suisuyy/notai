@@ -669,6 +669,7 @@ const mixin = {
         if (this.currentNoteId !== currentNote.note_id) {
           return;
         }
+        // Remote newer: update UI and cache to keep offline state fresh
         this.editor.innerHTML = currentNote.content;
         document.getElementById("noteTitle").textContent = currentNote.title;
         this.lastUpdated = currentNote.last_updated;
@@ -676,9 +677,16 @@ const mixin = {
         console.log('saveNote() note from the server is newer currentNote.last_updated:', currentNote.last_updated);
         this.currentNoteTitle = currentNote.title;
 
+        try {
+          await this.updateNoteCache(this.currentNoteId, currentNote);
+        } catch (e) {
+          console.warn('Failed to update cache after remote-newer sync', e);
+        }
+
         // Show saved state
         spinnerIcon.style.display = "none";
-        saveNoteBtn.querySelector('.fa-save').style.display = "none";
+        // keep the same button reference used above
+        saveBtn.querySelector('.fa-save').style.display = "none";
         spanText.textContent = "⌄";
 
         return;
@@ -698,13 +706,19 @@ const mixin = {
         const updatedNote = await this.apiRequest("GET", `/notes/${this.currentNoteId}`, null, false, true);
         if (updatedNote) {
           this.lastUpdated = updatedNote.last_updated;
+          try {
+            await this.updateNoteCache(this.currentNoteId, updatedNote);
+          } catch (e) {
+            console.warn('Failed to update cache after save', e);
+          }
         }
 
         // Show saved state
         spinnerIcon.style.display = "none";
         saveIcon.style.display = "inline-block";
         spanText.textContent = "^";
-        saveNoteBtn.querySelector('.fa-save').style.display = "none";
+        // keep the same button reference used above
+        saveBtn.querySelector('.fa-save').style.display = "none";
 
 
       } else {

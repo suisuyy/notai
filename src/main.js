@@ -54,6 +54,10 @@ const warmRuntimeCache = () => {
         cache.addAll([
           "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css",
           "https://corsp.suisuy.eu.org?https://cdn.jsdelivr.net/npm/marked/marked.min.js",
+          "https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.js",
+          "https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.css",
+          "https://cdn.jsdelivr.net/npm/prettier@2.3.2/standalone.js",
+          "https://cdn.jsdelivr.net/npm/prettier@2.3.2/parser-html.js",
         ]),
       )
       .catch((error) => {
