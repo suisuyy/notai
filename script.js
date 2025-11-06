@@ -275,6 +275,12 @@ when in voice mode, you need not wrap text in html tags like div br span ..., ju
     this.lastSavedContent = "";
     this.lastUpdated = null;
     this.lastInteractionTime = 0;
+    this._oversizedDefaultNoteState = {
+      noteId: null,
+      status: 'idle',
+      timer: null,
+      noteData: null,
+    };
     this.aiSettings = {
       systemPrompt: this.DEFAULT_SYSTEM_PROMPT,
 
@@ -3235,11 +3241,251 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     });
   }
 
+  getDefaultNoteId() {
+    return currentUser.userId ? `default_note_${currentUser.userId}` : null;
+  }
+
+  isDefaultNoteId(noteId) {
+    const defaultNoteId = this.getDefaultNoteId();
+    return Boolean(defaultNoteId && noteId === defaultNoteId);
+  }
+
+  async ensureDefaultFolderExists() {
+    try {
+      const folders = await this.apiRequest("GET", "/folders", null, false, true);
+      if (Array.isArray(folders)) {
+        const existing = folders.find((folder) => {
+          const name = (folder.folder_name || folder.name || "").toLowerCase();
+          return name === "default";
+        });
+        if (existing) {
+          return existing.folder_id;
+        }
+      }
+
+      const folderId = `default_${currentUser.userId || "user"}_${Date.now()}`;
+      const result = await this.apiRequest("POST", "/folders", {
+        folder_id: folderId,
+        name: "default",
+      }, false, true);
+
+      if (result && result.success) {
+        await this.loadFolders();
+        return folderId;
+      }
+      throw new Error("Failed to create default folder");
+    } catch (error) {
+      console.error("ensureDefaultFolderExists error:", error);
+      throw error;
+    }
+  }
+
+  resetOversizedDefaultNoteState(overrides = {}) {
+    if (this._oversizedDefaultNoteState?.timer) {
+      clearTimeout(this._oversizedDefaultNoteState.timer);
+    }
+    this._oversizedDefaultNoteState = {
+      noteId: null,
+      status: 'idle',
+      timer: null,
+      noteData: null,
+      ...overrides,
+    };
+  }
+
+  cloneNoteForOversizedHandling(note) {
+    if (!note) return null;
+    return {
+      note_id: note.note_id,
+      title: note.title,
+      content: note.content,
+      folder_id: note.folder_id,
+      last_updated: note.last_updated,
+    };
+  }
+
+  maybeScheduleOversizedDefaultNotePrompt(note) {
+    if (!note || !this.isDefaultNoteId(note.note_id)) {
+      if (!this.isDefaultNoteId(this._oversizedDefaultNoteState?.noteId)) {
+        this.resetOversizedDefaultNoteState();
+      }
+      return;
+    }
+
+    const contentLength = (note.content || "").length;
+    if (contentLength <= 10000) {
+      return;
+    }
+
+    if (!this._oversizedDefaultNoteState || this._oversizedDefaultNoteState.noteId !== note.note_id) {
+      this.resetOversizedDefaultNoteState({
+        noteId: note.note_id,
+        status: 'idle',
+      });
+    }
+
+    this._oversizedDefaultNoteState.noteData = this.cloneNoteForOversizedHandling(note);
+
+    if (this._oversizedDefaultNoteState.status !== 'idle') {
+      return;
+    }
+
+    this._oversizedDefaultNoteState.status = 'scheduled';
+    this._oversizedDefaultNoteState.timer = setTimeout(() => {
+      this.promptOversizedDefaultNoteMove();
+    }, 100);
+  }
+
+  async promptOversizedDefaultNoteMove() {
+    if (!this._oversizedDefaultNoteState || this._oversizedDefaultNoteState.status !== 'scheduled') {
+      return;
+    }
+
+    this._oversizedDefaultNoteState.timer = null;
+    this._oversizedDefaultNoteState.status = 'prompting';
+
+    const noteData = this.cloneNoteForOversizedHandling(this._oversizedDefaultNoteState.noteData);
+    if (!noteData) {
+      this.resetOversizedDefaultNoteState();
+      return;
+    }
+
+    const shouldMove = confirm(
+      "The default note is larger than 10,000 characters and may load slowly. Move its content to a new note inside the \"default\" folder?"
+    );
+
+    if (!shouldMove) {
+      this.resetOversizedDefaultNoteState({
+        noteId: noteData.note_id,
+        status: 'done',
+      });
+      return;
+    }
+
+    try {
+      await this.moveOversizedDefaultNoteContent(noteData);
+      this.resetOversizedDefaultNoteState({
+        noteId: noteData.note_id,
+        status: 'done',
+      });
+    } catch (error) {
+      console.error("Error handling oversized default note:", error);
+      if (!error?._notaiNotified) {
+        this.showToast("Failed to relocate default note content.", "error");
+      }
+      this.resetOversizedDefaultNoteState({
+        noteId: noteData.note_id,
+        status: 'idle',
+        noteData,
+      });
+    }
+  }
+
+  async moveOversizedDefaultNoteContent(noteData) {
+    const folderId = await this.ensureDefaultFolderExists();
+    const timestamp = utils.getCurrentTimeString().replace(/\D/g, "");
+    const newTitle = `default_${timestamp}`;
+    const newNoteId = `${newTitle}_${currentUser.userId || "user"}`;
+
+    const createPayload = {
+      note_id: newNoteId,
+      title: newTitle,
+      content: noteData.content,
+      folder_id: folderId,
+    };
+
+    const createResult = await this.apiRequest("POST", "/notes", createPayload, false, true);
+    if (!createResult || !createResult.success) {
+      this.showToast("Failed to move default note content. Please try again later.");
+      const error = new Error("Failed to create new note for oversized default note.");
+      error._notaiNotified = true;
+      throw error;
+    }
+
+    const clearedContent = "<br><br>";
+    let clearedNote = null;
+
+    if (this.currentNoteId === noteData.note_id) {
+      const titleElement = document.getElementById("noteTitle");
+      if (titleElement) {
+        titleElement.textContent = noteData.title || "default_note";
+      }
+      this.editor.innerHTML = clearedContent;
+      this.resetHistoryWithCurrentContent();
+
+      try {
+        await this.saveNote(true);
+        clearedNote = await this.apiRequest("GET", `/notes/${noteData.note_id}`, null, false, true);
+      } catch (error) {
+        this.showToast("Default note content moved, but clearing it failed. Please try saving manually.", "error");
+        const err = error instanceof Error ? error : new Error("Failed to save cleared default note.");
+        err._notaiNotified = true;
+        throw err;
+      }
+    } else {
+      const clearPayload = {
+        note_id: noteData.note_id,
+        title: noteData.title || "default_note",
+        content: clearedContent,
+        folder_id: noteData.folder_id || "1733485657799jj0.5911120915160637",
+      };
+
+      const clearResult = await this.apiRequest("POST", "/notes", clearPayload, false, true);
+      if (!clearResult || !clearResult.success) {
+        this.showToast("New note created but clearing the default note failed. Please clear it manually.", "error");
+        const error = new Error("Failed to clear default note after moving content.");
+        error._notaiNotified = true;
+        throw error;
+      }
+      clearedNote = await this.apiRequest("GET", `/notes/${noteData.note_id}`, null, false, true);
+    }
+
+    if (!clearedNote || clearedNote.error) {
+      clearedNote = {
+        ...noteData,
+        content: clearedContent,
+        last_updated: new Date().toISOString(),
+      };
+    }
+
+    if ((clearedNote.content || "") !== clearedContent) {
+      this.showToast("Default note could not be cleared. Please clear it manually.", "error");
+      const error = new Error("Cleared default note still contains original content.");
+      error._notaiNotified = true;
+      throw error;
+    }
+
+    let movedNote = await this.apiRequest("GET", `/notes/${newNoteId}`, null, false, true);
+    if (!movedNote || movedNote.error) {
+      movedNote = { ...createPayload, last_updated: new Date().toISOString() };
+    }
+
+    await this.updateNoteCache(newNoteId, movedNote);
+    await this.updateNoteCache(noteData.note_id, clearedNote);
+
+    if (this.currentNoteId === noteData.note_id) {
+      this.updateNoteUI(clearedNote);
+    }
+
+    await this.loadFolders();
+    await this.loadNotes(noteData.folder_id || "1733485657799jj0.5911120915160637");
+
+    this.showToast(`Moved default note content to "${newTitle}" in folder "default".`, "success");
+  }
+
   async loadNote(note_id, options = {}) {
     const { skipRemote = false } = options;
     console.log('Loading note:', note_id);
 
     const isSwitchingNote = this.currentNoteId && this.currentNoteId !== note_id;
+    if (this.isDefaultNoteId(note_id)) {
+      this.resetOversizedDefaultNoteState({
+        noteId: note_id,
+        status: 'idle',
+      });
+    } else {
+      this.resetOversizedDefaultNoteState();
+    }
 
     if (isSwitchingNote) {
       this.saveNote();
@@ -3256,6 +3502,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       if (cachedNote) {
         // Update UI with cached data
         this.updateNoteUI(cachedNote);
+        this.maybeScheduleOversizedDefaultNotePrompt(cachedNote);
         console.log('Loaded note from cache');
       }
 
@@ -3287,6 +3534,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
           }
           // Update UI with remote data
           this.updateNoteUI(note);
+          this.maybeScheduleOversizedDefaultNotePrompt(note);
 
 
         }
