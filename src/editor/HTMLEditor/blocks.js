@@ -95,7 +95,7 @@ const mixin = {
     this.hideAllDropdowns();
   },
 
-  addNewBlock(preserveSelection = false, anchorNode = null) {
+  addNewBlock(preserveSelection = false, anchorNode = null, anchorRange = null) {
     // Try to use current selection; if it's gone due to toolbar click,
     // prefer any cached selection restored by core before calling this.
     let selection = window.getSelection();
@@ -188,8 +188,11 @@ const mixin = {
 
     // Get current selection and find closest block
     let range;
-    if (selection && selection.rangeCount > 0) {
-      range = selection.getRangeAt(0);
+    if (anchorRange) {
+      range = anchorRange.cloneRange ? anchorRange.cloneRange() : anchorRange;
+    } else if (selection && selection.rangeCount > 0) {
+      const selRange = selection.getRangeAt(0);
+      range = selRange.cloneRange ? selRange.cloneRange() : selRange;
     } else {
       range = document.createRange();
       range.selectNodeContents(this.editor);
@@ -199,10 +202,21 @@ const mixin = {
     let currentBlock = null;
     try {
       const anchor = anchorNode || (selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null);
-      if (anchor) currentBlock = this.getCurrentOtterBlock(anchor);
+      if (anchor) {
+        let el = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
+        if (el) currentBlock = el.closest('.block');
+        if (!currentBlock && this.editor) {
+          const blocks = Array.from(this.editor.querySelectorAll('.block'));
+          currentBlock = blocks.find((blockEl) => blockEl.contains(anchor));
+        }
+        if (!currentBlock) currentBlock = this.getCurrentOtterBlock(anchor);
+      }
     } catch (_) { }
     // Fallback to the last known currentBlock
     if (!currentBlock) currentBlock = this.currentBlock;
+    if (currentBlock instanceof HTMLElement) {
+      this.currentBlock = currentBlock;
+    }
 
     // Insert the block after the cursor position
     const blankLine = document.createElement('br');

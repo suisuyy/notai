@@ -178,7 +178,15 @@ const mixin = {
     let selection = window.getSelection();
     let currentBlock = this.currentBlock;
     const range = selection.getRangeAt(0);
-    const selectionAnchorNode = range ? range.commonAncestorContainer : null;
+    const selectionRange = range.cloneRange ? range.cloneRange() : range;
+    const selectionAnchorNode = range ? (range.endContainer || range.commonAncestorContainer) : null;
+    let selectionAnchorBlock = null;
+    if (selectionAnchorNode) {
+      const anchorEl = selectionAnchorNode.nodeType === Node.ELEMENT_NODE ? selectionAnchorNode : selectionAnchorNode.parentElement;
+      if (anchorEl) {
+        selectionAnchorBlock = anchorEl.closest('.block');
+      }
+    }
     let commentedSpan = null;
 
     // Check for image in selection or current block
@@ -413,7 +421,7 @@ const mixin = {
         let askGroup = this.currentAskGroup;
         if (!askGroup) {
           // Preserve user selection when creating AI response block, and anchor below selection's block
-          askGroup = this.addNewBlock(true, selectionAnchorNode);
+          askGroup = this.addNewBlock(true, selectionAnchorBlock || selectionAnchorNode, selectionRange);
           askGroup.classList.add('ask-group');
           askGroup.setAttribute('contenteditable', 'false');
           askGroup.innerHTML = '';
