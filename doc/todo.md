@@ -1,7 +1,8 @@
-# for ai agnet
+doc/todo.md
+# for ai agent
 this is TODO for AI agent, instead input prompts direct, put the plan here and ask AI to complete unfinished task in  # newtask  so we can record what we have do with AI agent.
 
-Read whole overview.md(it's small file you can read all) to understand the project structure and common_mistakes, ensure common_mistakes  not happen, add more content in common_mistakes and update project structure if necessary after finish newtask.
+Read whole doc/overview.md(it's small file you can read all) to understand the project structure and common_mistakes, ensure common_mistakes  not happen, add more content in common_mistakes and update project structure if necessary after finish newtask.
 follow the # princple ,complete # newtasks in TODO.md
 
 
@@ -16,7 +17,6 @@ make sure the UI looks clean, modern , by using minimal style.
 
 
 # newtask
-this is first task, explore the whole project, init overview.md 
-
+None
 
 
