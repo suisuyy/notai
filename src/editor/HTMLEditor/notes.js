@@ -350,7 +350,7 @@ const mixin = {
             return;
           }
           // Update UI with remote data
-          this.updateNoteUI(note);
+          this.updateNoteUI(note, { addToRecents: isSwitchingNote });
           this.maybeScheduleOversizedDefaultNotePrompt(note);
 
 
@@ -370,7 +370,8 @@ const mixin = {
     }
   },
 
-  updateNoteUI(note) {
+  updateNoteUI(note, opts = {}) {
+    const { addToRecents = true } = opts;
     this.editor.innerHTML = note.content || "";
     document.getElementById("noteTitle").textContent = note.title || "";
     this.currentNoteId = note.note_id;
@@ -385,8 +386,10 @@ const mixin = {
     //log last updated time
     console.log('updateNoteUI() Note this.lastupdated at:', this.lastUpdated);
 
-    // Add to recent notes
-    this.addToRecentNotes(note.note_id, note.title);
+    // Add to recent notes (optional)
+    if (addToRecents) {
+      this.addToRecentNotes(note.note_id, note.title);
+    }
 
     // Update table of contents
     this.updateTableOfContents();
@@ -459,6 +462,21 @@ const mixin = {
 
     if (!recentContainer) return;
 
+    // Ensure no legacy outside-click closer remains
+    if (this._boundCloseRecentDropdown) {
+      try { document.removeEventListener('click', this._boundCloseRecentDropdown, true); } catch (_) {}
+      this._boundCloseRecentDropdown = null;
+    }
+
+    // Preserve open/closed state across re-renders (instance + DOM attribute)
+    const domOpen = recentContainer?.dataset?.ddOpen === '1';
+    if (typeof this.recentDropdownOpen === 'undefined') {
+      this.recentDropdownOpen = domOpen || false;
+    } else if (this.recentDropdownOpen !== domOpen) {
+      // Keep DOM data attribute in sync with instance flag
+      recentContainer.dataset.ddOpen = this.recentDropdownOpen ? '1' : '0';
+    }
+
     // Clear existing recent notes UI
     recentContainer.innerHTML = '';
 
@@ -515,6 +533,9 @@ const mixin = {
             this.addToRecentNotes(this.currentNoteId, this.currentNoteTitle);
           }
           this.loadNote(n.id);
+          // Close after selecting a note from the list
+          this.recentDropdownOpen = false;
+          if (recentContainer) recentContainer.dataset.ddOpen = '0';
           menu.style.display = 'none';
         });
         menu.appendChild(item);
@@ -523,20 +544,15 @@ const mixin = {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = menu.style.display === 'block';
-        menu.style.display = isOpen ? 'none' : 'block';
+        const nextOpen = !isOpen;
+        this.recentDropdownOpen = nextOpen;
+        if (recentContainer) recentContainer.dataset.ddOpen = nextOpen ? '1' : '0';
+        menu.style.display = nextOpen ? 'block' : 'none';
       });
 
-      // Global outside-click closer (install once)
-      if (!this._boundCloseRecentDropdown) {
-        this._boundCloseRecentDropdown = (e) => {
-          document.querySelectorAll('.recent-dropdown-menu').forEach(m => {
-            const host = m.parentElement;
-            if (host && !host.contains(e.target)) {
-              m.style.display = 'none';
-            }
-          });
-        };
-        document.addEventListener('click', this._boundCloseRecentDropdown, true);
+      // Restore previous open state (do not auto-close on outside clicks)
+      if (this.recentDropdownOpen) {
+        menu.style.display = 'block';
       }
 
       dd.appendChild(btn);

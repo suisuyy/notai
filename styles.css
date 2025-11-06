@@ -692,6 +692,11 @@ iframe {
     background-color: #f7f7f7;
 }
 
+/* Keep recent dropdown open when flagged on container */
+#recentNotes[data-dd-open="1"] .recent-dropdown-menu {
+    display: block !important;
+}
+
 .note-title[placeholder]:empty:before {
     content: attr(placeholder);
     color: #888;
