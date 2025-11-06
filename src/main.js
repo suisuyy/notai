@@ -73,6 +73,43 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("load", warmRuntimeCache);
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // In-app UI modals: login prompt and update prompt (set up early)
+  const loginPromptModal = document.getElementById("loginPromptModal");
+  const loginPromptLoginBtn = document.getElementById("loginPromptLoginBtn");
+  const loginPromptDismissBtn = document.getElementById("loginPromptDismissBtn");
+  const updatePromptModal = document.getElementById("updatePromptModal");
+  const updatePromptReloadBtn = document.getElementById("updatePromptReloadBtn");
+  const updatePromptLaterBtn = document.getElementById("updatePromptLaterBtn");
+
+  const openModal = (el) => { if (el) el.style.display = "block"; };
+  const closeModal = (el) => { if (el) el.style.display = "none"; };
+
+  // Expose helpers for other modules
+  window.showLoginPrompt = () => openModal(loginPromptModal);
+  window.showUpdatePrompt = () => openModal(updatePromptModal);
+
+  loginPromptLoginBtn?.addEventListener("click", () => {
+    closeModal(loginPromptModal);
+    window.location.href = "auth.html";
+  });
+  loginPromptDismissBtn?.addEventListener("click", () => closeModal(loginPromptModal));
+  loginPromptModal?.addEventListener("click", (e) => {
+    if (e.target === loginPromptModal || (e.target instanceof HTMLElement && e.target.hasAttribute("data-close-login"))) {
+      closeModal(loginPromptModal);
+    }
+  });
+
+  updatePromptReloadBtn?.addEventListener("click", () => {
+    closeModal(updatePromptModal);
+    window.location.reload();
+  });
+  updatePromptLaterBtn?.addEventListener("click", () => closeModal(updatePromptModal));
+  updatePromptModal?.addEventListener("click", (e) => {
+    if (e.target === updatePromptModal || (e.target instanceof HTMLElement && e.target.hasAttribute("data-close-update"))) {
+      closeModal(updatePromptModal);
+    }
+  });
+
   let editorInstance;
   try {
     editorInstance = new HTMLEditor();
@@ -211,22 +248,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     caches
       .delete(DEFAULT_CACHE_NAME)
       .then(() => navigator.serviceWorker.getRegistrations())
-      .then((registrations) =>
-        Promise.all(
-          registrations.map((registration) => registration.unregister()),
-        ),
-      )
+      .then((registrations) => Promise.all(registrations.map((r) => r.unregister())))
       .then(() => {
-        window.setTimeout(() => {
-          if (confirm(" Reload the page to update?")) {
-            window.location.reload();
-          }
-        }, 2000);
+        // Prompt the user in-app to reload once update is ready
+        window.setTimeout(() => window.showUpdatePrompt?.(), 300);
       })
-      .finally(() => {
-        window.setTimeout(() => {
-          window.location.reload();
-        }, 3000);
+      .catch((err) => {
+        console.warn("Update flow failed", err);
+        window.editor?.showToast?.("Update failed. Try again.", "error");
       });
   });
 });

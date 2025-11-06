@@ -360,6 +360,40 @@
         </div>
     </div>
 
+    <!-- Login Prompt Modal -->
+    <div id="loginPromptModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="loginPromptTitle">
+        <div class="modal-content">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 id="loginPromptTitle" style="margin:0;">You’re signed out</h3>
+                <button class="close" aria-label="Close" data-close-login>&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Log in to sync your notes and access your content.</p>
+            </div>
+            <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+                <button id="loginPromptDismissBtn" class="btn-secondary">Later</button>
+                <button id="loginPromptLoginBtn" class="btn-primary">Log in</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Available Modal -->
+    <div id="updatePromptModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="updatePromptTitle">
+        <div class="modal-content">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 id="updatePromptTitle" style="margin:0;">Update ready</h3>
+                <button class="close" aria-label="Close" data-close-update>&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>The app was updated. Reload to use the latest version.</p>
+            </div>
+            <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+                <button id="updatePromptLaterBtn" class="btn-secondary">Later</button>
+                <button id="updatePromptReloadBtn" class="btn-primary">Reload now</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

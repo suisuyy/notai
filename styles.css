@@ -1550,6 +1550,38 @@ pre code {
     max-width: 600px;
 }
 
+/* Compact confirmation modals */
+#loginPromptModal .modal-content,
+#updatePromptModal .modal-content {
+    margin: 15% auto;
+    width: 90%;
+    max-width: 420px;
+    height: auto;
+}
+
+/* Minimal buttons for modal actions */
+.btn-primary {
+    padding: 8px 14px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.btn-primary:hover { background-color: #0069d9; }
+
+.btn-secondary {
+    padding: 8px 14px;
+    background-color: #f1f3f5;
+    color: #333;
+    border: 1px solid #e0e3e7;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.btn-secondary:hover { background-color: #e9ecef; }
+
 
 
 
