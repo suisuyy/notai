@@ -1,4 +1,10 @@
 doc/todo.md
+
+# current status
+agent: codex
+model: gpt5-high
+
+
 # for ai agent
 this is TODO for AI agent, instead input prompts direct, put the plan here and ask AI to complete unfinished task in  # newtask  so we can record what we have do with AI agent.
 
@@ -17,6 +23,11 @@ make sure the UI looks clean, modern , by using minimal style.
 
 
 # newtask
-None
+improve format tool plain text, current it will replace all newline with space for multiline, like if user select:
+1
+2
+3
+then use plain text to remove format,it will become:
+1 2 3 4
 
 
