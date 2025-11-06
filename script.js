@@ -12,10 +12,10 @@ let globalDevices = {
 
 let utils = {
   getCurrentTimeString() {
-  const now = new Date();
-  const pad = n => n.toString().padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-},
+    const now = new Date();
+    const pad = n => n.toString().padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  },
   underlineSelectedText() {
     if (window.getSelection) {
       const selection = window.getSelection();
@@ -270,6 +270,7 @@ when in voice mode, you need not wrap text in html tags like div br span ..., ju
     }, 2000);
     this.toolbar = toolbar;
     this.aiToolbar = aiToolbar;
+    this.setEditableState(false);
     this.currentNoteTitle = "";
     this.lastSavedContent = "";
     this.lastUpdated = null;
@@ -305,8 +306,8 @@ when in voice mode, you need not wrap text in html tags like div br span ..., ju
     this.currentBlock = null;
     this.content = ""; // Store markdown content
     this.isSourceView = false;
-    this.isEditable = true;
     this.autoSaveTimeout = null;
+    this.deferredRemoteNoteId = null;
     this.audioRecordType = 'audio/webm';
     //check if the browser support webm, if not , use mp4
     if (!MediaRecorder.isTypeSupported('audio/webm')) {
@@ -329,6 +330,12 @@ when in voice mode, you need not wrap text in html tags like div br span ..., ju
     //timeout id and interval id 
     this.inputToUpdateLastUpdatedTimeoutID = 0;
     this.editor.addEventListener('pointerdown', (e) => {
+      if (this.deferredRemoteNoteId) {
+        const pendingNoteId = this.deferredRemoteNoteId;
+        this.deferredRemoteNoteId = null;
+        this.loadNote(pendingNoteId);
+      }
+
       this.currentBlock?.classList?.remove('currentBlock');
 
       this.currentBlock = this.getCurrentOtterBlock(e.target);
@@ -654,21 +661,29 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     this.editor.innerHTML += this.convertNewlinesToBreaks(text);
   }
 
-  toggleEditable() {
-    this.isEditable = !this.isEditable;
-    this.editor.contentEditable = this.isEditable;
-    document.getElementById("noteTitle").contentEditable = this.isEditable;
-
-    // Update button icon
-    const button = document.getElementById("toggleEditableBtn");
-    const icon = button.querySelector("i");
-    if (this.isEditable) {
-      icon.className = "fas fa-lock-open";
-      button.title = "Lock Editor";
-    } else {
-      icon.className = "fas fa-lock";
-      button.title = "Unlock Editor";
+  setEditableState(isEditable) {
+    this.isEditable = isEditable;
+    if (this.editor) {
+      this.editor.contentEditable = isEditable;
     }
+
+    const titleEl = document.getElementById("noteTitle");
+    if (titleEl) {
+      titleEl.contentEditable = isEditable;
+    }
+
+    const button = document.getElementById("toggleEditableBtn");
+    if (button) {
+      const icon = button.querySelector("i");
+      if (icon) {
+        icon.className = isEditable ? "fas fa-lock-open" : "fas fa-lock";
+      }
+      button.title = isEditable ? "Lock Editor" : "Unlock Editor";
+    }
+  }
+
+  toggleEditable() {
+    this.setEditableState(!this.isEditable);
   }
 
   toggleSourceView() {
@@ -881,8 +896,8 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
   async handleAIAction(action, text, includeCurrentBlockMedia = false) {
 
-    this.lastUpdated= utils.getCurrentTimeString();
-          //log last updated time
+    this.lastUpdated = utils.getCurrentTimeString();
+    //log last updated time
     console.log('handleaiaction update this.lastupdated:', this.lastUpdated);
 
     const useComment = text.split(' ').length < 3;
@@ -1028,20 +1043,20 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       // Ensure container is the last child for visibility
       this.editor.appendChild(commentContainer);
 
-             commentGroup = document.getElementById(commentId);
-       if (!commentGroup) {
-         commentGroup = document.createElement('div');
-         commentGroup.id = commentId;
-         commentGroup.classList.add('comment', 'block', 'comment-group');
-         commentContainer.appendChild(commentGroup);
-         commentGroup.setAttribute('contenteditable','false');
-         commentGroup.innerHTML = `<h4 style="margin: 0; padding: 5px 28px 0 0;">${commentGroup.id}</h4>`;
-         commentGroup.after(document.createElement('br'));
-         commentGroup.before(document.createElement('br'));
-       }
-       // Ensure edit/delete controls are present
-       this.attachGroupControls(commentGroup);
-       commentGroup.classList.add('showcomment');
+      commentGroup = document.getElementById(commentId);
+      if (!commentGroup) {
+        commentGroup = document.createElement('div');
+        commentGroup.id = commentId;
+        commentGroup.classList.add('comment', 'block', 'comment-group');
+        commentContainer.appendChild(commentGroup);
+        commentGroup.setAttribute('contenteditable', 'false');
+        commentGroup.innerHTML = `<h4 style="margin: 0; padding: 5px 28px 0 0;">${commentGroup.id}</h4>`;
+        commentGroup.after(document.createElement('br'));
+        commentGroup.before(document.createElement('br'));
+      }
+      // Ensure edit/delete controls are present
+      this.attachGroupControls(commentGroup);
+      commentGroup.classList.add('showcomment');
     }
 
     // Make parallel requests to selected models
@@ -1051,9 +1066,10 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         messages: [
           {
             role: "system",
-            content: 
-            this.aiSettings.systemPrompt+
-            (modelName.includes('audio')?"\n\n you are in audio mode now, you are talent voice actor, you can sing and speak in various tone,do not use html to reply me, only use image or video tag if needed, use <br> tag for newline":"")          },
+            content:
+              this.aiSettings.systemPrompt +
+              (modelName.includes('audio') ? "\n\n you are in audio mode now, you are talent voice actor, you can sing and speak in various tone,do not use html to reply me, only use image or video tag if needed, use <br> tag for newline" : "")
+          },
           {
             role: "user",
             content: content
@@ -1083,28 +1099,28 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       let block = null;
       let contentEl = null;
       if (useComment) {
-               // Ensure a tabs bar and contents wrapper exist in the comment group
-       let tabsBar = commentGroup.querySelector('.comment-tabs');
-       let contentsWrap = commentGroup.querySelector('.comment-contents');
-       if (!tabsBar) {
-         tabsBar = document.createElement('div');
-         tabsBar.className = 'comment-tabs';
-         tabsBar.style.display = 'flex';
-         tabsBar.style.gap = '8px';
-         tabsBar.style.margin = '6px 0';
-         tabsBar.style.flexWrap = 'wrap';
-         commentGroup.appendChild(tabsBar);
-       }
-       if (!contentsWrap) {
-         contentsWrap = document.createElement('div');
-         contentsWrap.className = 'comment-contents';
-         commentGroup.appendChild(contentsWrap);
-       }
-       // Show the comment block immediately near selection
-       try {
-         const uId = underlinedElem ? underlinedElem.id : (commentGroup.id || '').replace(/^comment/, '');
-         this.showCommentTooltip(uId, { clientX: this.lastPointerPosition.x, clientY: this.lastPointerPosition.y });
-       } catch(_) {}
+        // Ensure a tabs bar and contents wrapper exist in the comment group
+        let tabsBar = commentGroup.querySelector('.comment-tabs');
+        let contentsWrap = commentGroup.querySelector('.comment-contents');
+        if (!tabsBar) {
+          tabsBar = document.createElement('div');
+          tabsBar.className = 'comment-tabs';
+          tabsBar.style.display = 'flex';
+          tabsBar.style.gap = '8px';
+          tabsBar.style.margin = '6px 0';
+          tabsBar.style.flexWrap = 'wrap';
+          commentGroup.appendChild(tabsBar);
+        }
+        if (!contentsWrap) {
+          contentsWrap = document.createElement('div');
+          contentsWrap.className = 'comment-contents';
+          commentGroup.appendChild(contentsWrap);
+        }
+        // Show the comment block immediately near selection
+        try {
+          const uId = underlinedElem ? underlinedElem.id : (commentGroup.id || '').replace(/^comment/, '');
+          this.showCommentTooltip(uId, { clientX: this.lastPointerPosition.x, clientY: this.lastPointerPosition.y });
+        } catch (_) { }
 
         // Create a tab and a content container per model
         let content = contentsWrap.querySelector(`.comment-content[data-model="${modelName}"]`);
@@ -1141,73 +1157,73 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
         // The element to write AI content into
         contentEl = content;
-              }
-        else {
-          // Ensure a single parent ask group with tabs for normal mode
-          let askGroup = this.currentAskGroup;
-                     if (!askGroup) {
-             askGroup = this.addNewBlock();
-             askGroup.classList.add('ask-group');
-             askGroup.setAttribute('contenteditable','false');
-             askGroup.innerHTML = '';
-             // Add edit/delete controls to the ask group
-             this.attachGroupControls(askGroup);
-             this.currentAskGroup = askGroup;
-             // Clear the reference after a short delay so subsequent actions create a new group
-             setTimeout(() => { if (this.currentAskGroup === askGroup) this.currentAskGroup = null; }, 2000);
-           }
-
-          // Setup tabs and contents containers inside ask group
-          let tabsBar = askGroup.querySelector('.ask-tabs');
-          let contentsWrap = askGroup.querySelector('.ask-contents');
-          if (!tabsBar) {
-            tabsBar = document.createElement('div');
-            tabsBar.className = 'ask-tabs';
-            tabsBar.style.display = 'flex';
-            tabsBar.style.gap = '8px';
-            tabsBar.style.margin = '6px 0';
-            tabsBar.style.flexWrap = 'wrap';
-            askGroup.appendChild(tabsBar);
-          }
-          if (!contentsWrap) {
-            contentsWrap = document.createElement('div');
-            contentsWrap.className = 'ask-contents';
-            askGroup.appendChild(contentsWrap);
-          }
-
-          // Tab and content per model
-          let content = contentsWrap.querySelector(`.ask-content[data-model="${modelName}"]`);
-          let tabBtn = tabsBar.querySelector(`button[data-model="${modelName}"]`);
-          if (!tabBtn) {
-            tabBtn = document.createElement('button');
-            tabBtn.textContent = modelName;
-            tabBtn.setAttribute('data-model', modelName);
-            tabBtn.className = 'model-tab';
-            tabBtn.addEventListener('click', () => {
-              tabsBar.querySelectorAll('button').forEach(b => { b.classList.remove('active'); });
-              contentsWrap.querySelectorAll('.ask-content').forEach(c => c.style.display = 'none');
-              tabBtn.classList.add('active');
-              const target = contentsWrap.querySelector(`.ask-content[data-model="${modelName}"]`);
-              if (target) target.style.display = 'block';
-            });
-            tabsBar.appendChild(tabBtn);
-          }
-          if (!content) {
-            content = document.createElement('div');
-            content.className = 'ask-content';
-            content.setAttribute('data-model', modelName);
-            content.style.display = 'none';
-            content.style.padding = '6px 0';
-            contentsWrap.appendChild(content);
-          }
-
-          if (!tabsBar.querySelector('button.active')) {
-            tabBtn.click();
-          }
-
-          contentEl = content;
-          block = askGroup; // keep reference compatibility
+      }
+      else {
+        // Ensure a single parent ask group with tabs for normal mode
+        let askGroup = this.currentAskGroup;
+        if (!askGroup) {
+          askGroup = this.addNewBlock();
+          askGroup.classList.add('ask-group');
+          askGroup.setAttribute('contenteditable', 'false');
+          askGroup.innerHTML = '';
+          // Add edit/delete controls to the ask group
+          this.attachGroupControls(askGroup);
+          this.currentAskGroup = askGroup;
+          // Clear the reference after a short delay so subsequent actions create a new group
+          setTimeout(() => { if (this.currentAskGroup === askGroup) this.currentAskGroup = null; }, 2000);
         }
+
+        // Setup tabs and contents containers inside ask group
+        let tabsBar = askGroup.querySelector('.ask-tabs');
+        let contentsWrap = askGroup.querySelector('.ask-contents');
+        if (!tabsBar) {
+          tabsBar = document.createElement('div');
+          tabsBar.className = 'ask-tabs';
+          tabsBar.style.display = 'flex';
+          tabsBar.style.gap = '8px';
+          tabsBar.style.margin = '6px 0';
+          tabsBar.style.flexWrap = 'wrap';
+          askGroup.appendChild(tabsBar);
+        }
+        if (!contentsWrap) {
+          contentsWrap = document.createElement('div');
+          contentsWrap.className = 'ask-contents';
+          askGroup.appendChild(contentsWrap);
+        }
+
+        // Tab and content per model
+        let content = contentsWrap.querySelector(`.ask-content[data-model="${modelName}"]`);
+        let tabBtn = tabsBar.querySelector(`button[data-model="${modelName}"]`);
+        if (!tabBtn) {
+          tabBtn = document.createElement('button');
+          tabBtn.textContent = modelName;
+          tabBtn.setAttribute('data-model', modelName);
+          tabBtn.className = 'model-tab';
+          tabBtn.addEventListener('click', () => {
+            tabsBar.querySelectorAll('button').forEach(b => { b.classList.remove('active'); });
+            contentsWrap.querySelectorAll('.ask-content').forEach(c => c.style.display = 'none');
+            tabBtn.classList.add('active');
+            const target = contentsWrap.querySelector(`.ask-content[data-model="${modelName}"]`);
+            if (target) target.style.display = 'block';
+          });
+          tabsBar.appendChild(tabBtn);
+        }
+        if (!content) {
+          content = document.createElement('div');
+          content.className = 'ask-content';
+          content.setAttribute('data-model', modelName);
+          content.style.display = 'none';
+          content.style.padding = '6px 0';
+          contentsWrap.appendChild(content);
+        }
+
+        if (!tabsBar.querySelector('button.active')) {
+          tabBtn.click();
+        }
+
+        contentEl = content;
+        block = askGroup; // keep reference compatibility
+      }
 
       request.then(async response => {
         if (response.error) {
@@ -1327,22 +1343,22 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
           let responseObject = await response.json();
           console.log(responseObject);
           // Handle the response for audio output , the audio is in responseObject.choices[0].message.audio, it has properties data: kjasbase64, transcript: "text"
-          if(responseObject.choices[0].message.audio) {
+          if (responseObject.choices[0].message.audio) {
             let audio = responseObject.choices[0].message.audio;
             let audioUrl = 'data:audio/wav;base64,' + audio.data;
             contentEl.innerHTML = `<audio controls src="${audioUrl}" type="audio/wav"></audio>
             <br><br> ${audio.transcript} 
             <br><br> by ${modelName}`;
-                        
+
           }
-          else{
+          else {
             contentEl.innerHTML = responseObject.choices[0].message.content + '<br><br> by ' + modelName;
-          
+
           }
 
           this.cleanNote();
           this.delayedSaveNote();
-          
+
         }
       }).catch(error => {
         console.error(`Error with ${modelName} request:`, error);
@@ -1621,17 +1637,17 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     }
   }
 
-     hideAllDropdowns() {
-     try {
-       // Clear inline styles so CSS hover works later
-       document.querySelectorAll('.toolbar .dropdown .dropdown-content').forEach(dc => dc.style.display = '');
-       // Lock dropdowns temporarily until mouse leaves toolbar or user clicks button again
-       if (this.toolbar) this.toolbar.classList.add('dropdowns-locked');
-     } catch (_) {}
-   }
+  hideAllDropdowns() {
+    try {
+      // Clear inline styles so CSS hover works later
+      document.querySelectorAll('.toolbar .dropdown .dropdown-content').forEach(dc => dc.style.display = '');
+      // Lock dropdowns temporarily until mouse leaves toolbar or user clicks button again
+      if (this.toolbar) this.toolbar.classList.add('dropdowns-locked');
+    } catch (_) { }
+  }
 
-   updateAIToolbar() {
-     const actionsContainer = this.aiToolbar.querySelector('.ai-actions');
+  updateAIToolbar() {
+    const actionsContainer = this.aiToolbar.querySelector('.ai-actions');
     actionsContainer.innerHTML = `
       <button data-ai-action="ask"><i class="fas fa-question-circle"></i> Ask</button>
       <button data-ai-action="correct"><i class="fas fa-check-circle"></i> Correct</button>
@@ -1663,13 +1679,13 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
   // Inject edit/delete controls into a response group element
   attachGroupControls(groupEl) {
     try {
-            if (!groupEl) return;
+      if (!groupEl) return;
       // If controls already exist (e.g., after reload), remove them so we can reattach fresh listeners
       const existingControls = groupEl.querySelector('.group-controls');
       if (existingControls) existingControls.remove();
       // Position container so controls are anchored to this block
       if (getComputedStyle(groupEl).position === 'static') groupEl.style.position = 'relative';
- 
+
       const controls = document.createElement('div');
       controls.className = 'group-controls';
       controls.setAttribute('contenteditable', 'false');
@@ -1744,22 +1760,22 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
   // Ensure all existing groups have controls (useful after loading content)
   ensureGroupControls() {
-         try {
-       const groups = this.editor.querySelectorAll('.ask-group, .comment-group');
-       groups.forEach((g) => this.attachGroupControls(g));
-       // Also watch for newly inserted groups
-       const obs = new MutationObserver((mutations) => {
-         for (const m of mutations) {
-           m.addedNodes.forEach((node) => {
-             if (!(node instanceof HTMLElement)) return;
-             if (node.classList && (node.classList.contains('ask-group') || node.classList.contains('comment-group'))) {
-               this.attachGroupControls(node);
-             }
-             node.querySelectorAll && node.querySelectorAll('.ask-group, .comment-group').forEach((el) => this.attachGroupControls(el));
-           });
-         }
-       });
-       obs.observe(this.editor, { childList: true, subtree: true });
+    try {
+      const groups = this.editor.querySelectorAll('.ask-group, .comment-group');
+      groups.forEach((g) => this.attachGroupControls(g));
+      // Also watch for newly inserted groups
+      const obs = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          m.addedNodes.forEach((node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (node.classList && (node.classList.contains('ask-group') || node.classList.contains('comment-group'))) {
+              this.attachGroupControls(node);
+            }
+            node.querySelectorAll && node.querySelectorAll('.ask-group, .comment-group').forEach((el) => this.attachGroupControls(el));
+          });
+        }
+      });
+      obs.observe(this.editor, { childList: true, subtree: true });
 
       // Ensure a default active tab + content is visible
       groups.forEach((g) => {
@@ -2051,21 +2067,21 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         }
       }, true);
 
-             // Allow dropdowns to re-open after mouse leaves the toolbar
-       if (this.toolbar) {
-         this.toolbar.addEventListener('mouseleave', () => {
-           this.toolbar.classList.remove('dropdowns-locked');
-         });
-         // Also unlock when user clicks any dropdown toggle button
-         this.toolbar.addEventListener('click', (e) => {
-           if (e.target.closest && e.target.closest('.dropdown .dropbtn')) {
-             this.toolbar.classList.remove('dropdowns-locked');
-           }
-         }, true);
-       }
+      // Allow dropdowns to re-open after mouse leaves the toolbar
+      if (this.toolbar) {
+        this.toolbar.addEventListener('mouseleave', () => {
+          this.toolbar.classList.remove('dropdowns-locked');
+        });
+        // Also unlock when user clicks any dropdown toggle button
+        this.toolbar.addEventListener('click', (e) => {
+          if (e.target.closest && e.target.closest('.dropdown .dropbtn')) {
+            this.toolbar.classList.remove('dropdowns-locked');
+          }
+        }, true);
+      }
 
-       // Get all required elements
-       const uploadModal = document.getElementById('uploadModal');
+      // Get all required elements
+      const uploadModal = document.getElementById('uploadModal');
       const uploadFileBtn = document.getElementById('uploadFileBtn');
       const closeUploadBtn = uploadModal?.querySelector('.close');
       const fileInput = document.getElementById('fileInput');
@@ -2096,14 +2112,14 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       const formatButtons = document.querySelectorAll('.formatting-tools button[data-command]');
 
       // Setup file upload and media capture handlers
-              if (uploadModal && uploadFileBtn && closeUploadBtn &&
-          fileInput && selectFileBtn && uploadBtn && previewArea && filePreview) {
+      if (uploadModal && uploadFileBtn && closeUploadBtn &&
+        fileInput && selectFileBtn && uploadBtn && previewArea && filePreview) {
 
-          // Mobile-friendly Undo/Redo buttons in + insert dropdown
-          const undoBtn = document.getElementById('undoBtn');
-          const redoBtn = document.getElementById('redoBtn');
-          if (undoBtn) undoBtn.addEventListener('click', () => this.undo());
-          if (redoBtn) redoBtn.addEventListener('click', () => this.redo());
+        // Mobile-friendly Undo/Redo buttons in + insert dropdown
+        const undoBtn = document.getElementById('undoBtn');
+        const redoBtn = document.getElementById('redoBtn');
+        if (undoBtn) undoBtn.addEventListener('click', () => this.undo());
+        if (redoBtn) redoBtn.addEventListener('click', () => this.redo());
 
         uploadFileBtn.onclick = () => {
           uploadModal.style.display = 'block';
@@ -2362,18 +2378,18 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       }
 
       // Format buttons
-             formatButtons.forEach((button) => {
-         button.addEventListener('click', () => {
-           const command = button.dataset.command;
-           if (command.startsWith('h')) {
-             this.formatBlock(command);
-           } else {
-             this.executeCommand(command);
-           }
-           // Hide any open dropdowns after action
-           this.hideAllDropdowns();
-         });
-       });
+      formatButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const command = button.dataset.command;
+          if (command.startsWith('h')) {
+            this.formatBlock(command);
+          } else {
+            this.executeCommand(command);
+          }
+          // Hide any open dropdowns after action
+          this.hideAllDropdowns();
+        });
+      });
 
       // Text color
       if (textColorInput) {
@@ -2448,9 +2464,9 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       }
 
       // Plain text button
-             if (plainTextBtn) {
-         plainTextBtn.addEventListener('click', () => { this.convertToPlainText(); this.hideAllDropdowns(); });
-       }
+      if (plainTextBtn) {
+        plainTextBtn.addEventListener('click', () => { this.convertToPlainText(); this.hideAllDropdowns(); });
+      }
 
       // Auto-save on content changes
       if (this.editor) {
@@ -2489,11 +2505,11 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         this.editor.addEventListener('input', () => {
 
           clearTimeout(this.inputToUpdateLastUpdatedTimeoutID);
-          this.inputToUpdateLastUpdatedTimeoutID= setTimeout(() => {
-          this.lastUpdated=utils.getCurrentTimeString();
-          console.log(' this.editor.addEventListener input update this.lastupdated  :', this.lastUpdated);
+          this.inputToUpdateLastUpdatedTimeoutID = setTimeout(() => {
+            this.lastUpdated = utils.getCurrentTimeString();
+            console.log(' this.editor.addEventListener input update this.lastupdated  :', this.lastUpdated);
             this.delayedSaveNote();
-          this.updateTableOfContents();
+            this.updateTableOfContents();
           }, 5000);
 
           // For non-typing input or explicit structural changes, take a post snapshot
@@ -2609,10 +2625,10 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
                   }
                 }
               }
-            } catch (_) {}
+            } catch (_) { }
 
             utils.insertTextAtCursor('\n', 50);
-            try { document.execCommand('removeFormat'); } catch (_) {}
+            try { document.execCommand('removeFormat'); } catch (_) { }
 
           } else {
             rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
@@ -2762,21 +2778,21 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
   executeCommand(command, value = null) {
     // Snapshot before formatting command
     this.recordSnapshot('execCommand:' + command);
-         document.execCommand(command, false, value);
-     // Snapshot after if content changed (coalescing handled by recordSnapshot)
-     this.recordSnapshot('execCommand:after:' + command);
-     this.editor.focus();
-     // Hide menus if any open
-     this.hideAllDropdowns();
+    document.execCommand(command, false, value);
+    // Snapshot after if content changed (coalescing handled by recordSnapshot)
+    this.recordSnapshot('execCommand:after:' + command);
+    this.editor.focus();
+    // Hide menus if any open
+    this.hideAllDropdowns();
   }
 
   formatBlock(tag) {
     this.recordSnapshot('formatBlock:' + tag);
-         document.execCommand("formatBlock", false, `<${tag}>`);
-     this.recordSnapshot('formatBlock:after:' + tag);
-     // Hide menus if any open
-     this.hideAllDropdowns();
-   }
+    document.execCommand("formatBlock", false, `<${tag}>`);
+    this.recordSnapshot('formatBlock:after:' + tag);
+    // Hide menus if any open
+    this.hideAllDropdowns();
+  }
 
   addNewBlock() {
     const selection = window.getSelection();
@@ -3000,51 +3016,51 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
   }
 
   async checkAuthAndLoadNotes() {
-    let defaultNote= null;
-    // Load default note on initial startup only if nothing is selected yet
-    if (!this.currentNoteId) {
-      this.loadNote("default_note_" + currentUser.userId);
-    }
-    
+    const defaultNoteId = currentUser.userId ? `default_note_${currentUser.userId}` : null;
 
-    
+    if (!this.currentNoteId && defaultNoteId) {
+      this.loadNote(defaultNoteId, { skipRemote: true });
+    }
+
     if (currentUser.userId && currentUser.credentials) {
       const notes = await this.apiRequest("GET", `/folders/1733485657799jj0.5911120915160637/notes`);
       if (!notes.error) {
-        // Check for default note
-         defaultNote = notes.find((note) => note.title === "default_note");
-         
-
+        const defaultNote = notes.find((note) => note.title === "default_note");
 
         if (!defaultNote) {
-          // Create default note if it doesn't exist
-          const result = await this.apiRequest("POST", "/notes", {
-            note_id: "default_note_" + currentUser.userId,
-            title: "default_note",
-            content: `Welcome to your default note! 
-go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#introduction"> Help </a>  to see how to use the Notetaking app powered by LLM
+          const defaultNoteContent = `Welcome to your default note! 
+go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#introduction"> Help </a>  to see how to use the Notetaking app powered by LLM
 
- `,
+`;
+          const createPayload = {
+            note_id: defaultNoteId,
+            title: "default_note",
+            content: defaultNoteContent,
             folder_id: "1733485657799jj0.5911120915160637",
-          });
-          if (result.success) {
-            await this.loadNotes();  // Will load notes from default folder
-            //only load default note when current note is default note
-            if(this.currentNoteId === "default_note_" + currentUser.userId){
-              await this.loadNote("default_note_" + currentUser.userId);
+          };
+          const result = await this.apiRequest("POST", "/notes", createPayload);
+
+          if (result.success && defaultNoteId) {
+            const now = new Date().toISOString();
+            await this.updateNoteCache(defaultNoteId, {
+              note_id: defaultNoteId,
+              title: "default_note",
+              content: defaultNoteContent,
+              last_updated: now,
+            });
+
+            if (!this.currentNoteId || this.currentNoteId === defaultNoteId) {
+              await this.loadNote(defaultNoteId, { skipRemote: true });
             }
+
+            await this.loadNotes();
           }
         } else {
-          // Only load the default note if it's still the active/empty selection
-          const defaultNoteId = "default_note_" + currentUser.userId;
-          if (!this.currentNoteId || this.currentNoteId === defaultNoteId) {
-            await this.loadNote(defaultNoteId);
+          if (defaultNoteId && (!this.currentNoteId || this.currentNoteId === defaultNoteId)) {
+            await this.loadNote(defaultNoteId, { skipRemote: true });
           }
-          // Always refresh the notes list
           await this.loadNotes();
         }
-      } else {
-        //this.logout();
       }
     } else {
       this.logout();
@@ -3219,11 +3235,21 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
     });
   }
 
-  async loadNote(note_id) {
-    this.saveNote();
+  async loadNote(note_id, options = {}) {
+    const { skipRemote = false } = options;
     console.log('Loading note:', note_id);
-    // Break history continuity when switching notes
-    this.initializeHistory();
+
+    const isSwitchingNote = this.currentNoteId && this.currentNoteId !== note_id;
+
+    if (isSwitchingNote) {
+      this.saveNote();
+      this.initializeHistory();
+    } else if (!this.currentNoteId) {
+      this.initializeHistory();
+    }
+
+    this.currentNoteId = note_id;
+
     try {
       // First try to get from cache
       const cachedNote = await this.getNoteFromCache(note_id);
@@ -3232,6 +3258,13 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
         this.updateNoteUI(cachedNote);
         console.log('Loaded note from cache');
       }
+
+      if (skipRemote) {
+        this.deferredRemoteNoteId = note_id;
+        return;
+      }
+
+      this.deferredRemoteNoteId = null;
 
       // Then fetch from remote
       const note = await this.apiRequest("GET", `/notes/${note_id}`);
@@ -3263,28 +3296,30 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
         if (!cachedNote) {
           this.showToast('Failed to load note');
         }
+        this.deferredRemoteNoteId = note_id;
       }
     } catch (error) {
       console.error('Error loading note:', error);
       this.showToast('Error loading note');
+      this.deferredRemoteNoteId = note_id;
     }
   }
 
   // Helper method to update UI with note data
-     updateNoteUI(note) {
-     this.editor.innerHTML = note.content || "";
-     document.getElementById("noteTitle").textContent = note.title || "";
-     this.currentNoteId = note.note_id;
-     this.currentNoteTitle = note.title;
-     this.lastUpdated = note.last_updated;
-     // Ensure AI blocks have controls even when loading from storage
-     this.ensureGroupControls();
-     // Re-attach after a tick to cover late-rendered content
-     setTimeout(() => this.ensureGroupControls(), 0);
-     // Reset history baseline for this note
-     this.resetHistoryWithCurrentContent();
-     //log last updated time
-     console.log('updateNoteUI() Note this.lastupdated at:', this.lastUpdated);
+  updateNoteUI(note) {
+    this.editor.innerHTML = note.content || "";
+    document.getElementById("noteTitle").textContent = note.title || "";
+    this.currentNoteId = note.note_id;
+    this.currentNoteTitle = note.title;
+    this.lastUpdated = note.last_updated;
+    // Ensure AI blocks have controls even when loading from storage
+    this.ensureGroupControls();
+    // Re-attach after a tick to cover late-rendered content
+    setTimeout(() => this.ensureGroupControls(), 0);
+    // Reset history baseline for this note
+    this.resetHistoryWithCurrentContent();
+    //log last updated time
+    console.log('updateNoteUI() Note this.lastupdated at:', this.lastUpdated);
 
     // Add to recent notes
     this.addToRecentNotes(note.note_id, note.title);
@@ -3304,20 +3339,20 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
 
   // Helper method to get note from cache
   async getNoteFromCache(note_id) {
-         try {
-       const cache = await caches.open('notes-cache');
-       const response = await cache.match(`note-${note_id}`);
-       if (response) {
-         const data = await response.json();
-         // After reading from cache, ensure controls are attached if content will be used
-         setTimeout(() => this.ensureGroupControls(), 0);
-         return data;
-       }
-       return null;
-     } catch (error) {
-       console.error('Error reading from cache:', error);
-       return null;
-     }
+    try {
+      const cache = await caches.open('notes-cache');
+      const response = await cache.match(`note-${note_id}`);
+      if (response) {
+        const data = await response.json();
+        // After reading from cache, ensure controls are attached if content will be used
+        setTimeout(() => this.ensureGroupControls(), 0);
+        return data;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error reading from cache:', error);
+      return null;
+    }
   }
 
   // Helper method to update note in cache
@@ -3635,7 +3670,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
         let blob = utils.base64ToBlob(src);
         let file = new File([blob], `media.${type.split('/')[1]}`, { type });
         let url = await this.uploadFile(file, false, false);
-        if(url){
+        if (url) {
           element.src = url;
 
         }
@@ -3911,7 +3946,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/dev2?tab=readme-ov-file#int
     // Remove inline formatting (bold/italic/links/etc.) within the selected span
     try {
       document.execCommand('removeFormat');
-    } catch (_) {}
+    } catch (_) { }
 
     // If inside a heading (h1–h4), split the heading so only the selection becomes plain text
     const heading = tempSpan.closest && tempSpan.closest('h1,h2,h3,h4');
@@ -4641,7 +4676,7 @@ window.addEventListener('load', () => {
         './script.js',
         './icons/notai-192x192.png',
         './icons/notai-512x512.png',
-        
+
       ]);
 
       console.log('App cache updated');
@@ -4704,22 +4739,22 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       // }, 5000);
 
-      if(target.tagName === 'IMG'){
+      if (target.tagName === 'IMG') {
         //create image tag to diplay the image
         imgDisplay.src = target.src;
         //imgDisplay.classList.remove('hidden');
-        
+
       }
-        
-      else if(target.tagName === 'VIDEO'){
-        
+
+      else if (target.tagName === 'VIDEO') {
+
       }
-      else if(target.tagName === 'AUDIO'){
-        
+      else if (target.tagName === 'AUDIO') {
+
       }
-      
+
     }
-    else if(target.id === 'midiaURLContainer'){
+    else if (target.id === 'midiaURLContainer') {
       //copy innerhtml to clipboard and show toast copyed
       navigator.clipboard.writeText(midiaURLContainer.innerHTML).then(() => {
         editor.showToast('Copied to clipboard', 'success');
@@ -4729,29 +4764,29 @@ document.addEventListener("DOMContentLoaded", async () => {
         editor.showToast('Failed to copy', 'error');
       });
     }
-    else{
+    else {
       midiaURLContainer.classList.add('hidden');
       imgDisplay.classList.add('hidden');
     }
-    
+
   });
 
   // Prevent editing when clicking on non-editable blocks to prevent poping up keyboard on ios
-  let setEditableTimeoutID=0;
+  let setEditableTimeoutID = 0;
   document.body.addEventListener('pointerdown', (event) => {
     const target = event.target;
     let blockElem = target;
     while (blockElem && blockElem !== document.body) {
       if (blockElem.classList && blockElem.classList.contains('block')) {
-      if (!blockElem.isContentEditable) {
-        editor.editor.setAttribute("contenteditable", "false");
-        clearTimeout(setEditableTimeoutID);
-        setEditableTimeoutID=setTimeout(() => {
-        editor.editor.setAttribute("contenteditable", "true");
-          
-        }, 500);
-        break;
-      }
+        if (!blockElem.isContentEditable) {
+          editor.editor.setAttribute("contenteditable", "false");
+          clearTimeout(setEditableTimeoutID);
+          setEditableTimeoutID = setTimeout(() => {
+            editor.editor.setAttribute("contenteditable", "true");
+
+          }, 500);
+          break;
+        }
       }
       blockElem = blockElem.parentElement;
     }
@@ -4803,7 +4838,7 @@ document.querySelector('#updateAppBtn').addEventListener('click', () => {
   caches.delete('app-cache').then(() => {
     console.log('Cache deleted');
     //remove service worker
-    
+
 
   });
   navigator.serviceWorker.getRegistrations().then(registrations => {
@@ -4817,7 +4852,7 @@ document.querySelector('#updateAppBtn').addEventListener('click', () => {
               window.location.reload();
             }
           }, 2000);
-          
+
         }
 
       }
@@ -4827,8 +4862,8 @@ document.querySelector('#updateAppBtn').addEventListener('click', () => {
   });
   setTimeout(() => {
     window.location.reload();
-    
+
   }, 3000);
 
- 
+
 });

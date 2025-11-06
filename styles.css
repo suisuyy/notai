@@ -1,6 +1,6 @@
 .CodeMirror {
     display: none;
-} 
+}
 
 
 
@@ -12,26 +12,31 @@ body {
 }
 
 /* Use border-box sizing everywhere to avoid overflow from padding/borders */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
     box-sizing: border-box;
 }
 
 /* Prevent horizontal panning/blank space on mobile */
-html, body {
+html,
+body {
     max-width: 100%;
     overflow-x: hidden;
 }
 
 
-  
-button ,input, textarea {
-    padding: 6px ;
-    border-radius: 4px ;
-    background-color: white ;
-    color: black ;
-    border: 1px solid lightgray ;
-  
-  }
+
+button,
+input,
+textarea {
+    padding: 6px;
+    border-radius: 4px;
+    background-color: white;
+    color: black;
+    border: 1px solid lightgray;
+
+}
 
 .code-copy-btn {
     position: fixed;
@@ -50,23 +55,27 @@ button ,input, textarea {
 
 /* Minimal icon-only group controls */
 .group-controls {
-  backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
 }
+
 .group-controls button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  line-height: 1;
+    appearance: none;
+    border: none;
+    background: transparent;
+    padding: 0;
+    line-height: 1;
 }
+
 .group-controls button span {
-  transition: background 0.15s ease;
+    transition: background 0.15s ease;
 }
+
 .group-controls button:hover span {
-  background: rgba(0,0,0,0.06);
+    background: rgba(0, 0, 0, 0.06);
 }
+
 .group-controls button:active span {
-  background: rgba(0,0,0,0.12);
+    background: rgba(0, 0, 0, 0.12);
 }
 
 .code-copy-btn:hover {
@@ -155,10 +164,12 @@ h3 {
     font-family: Georgia, 'Times New Roman', Times, serif;
 }
 
-video, img {
+video,
+img {
     width: auto !important;
-    height: 300px !important; 
+    height: 300px !important;
 }
+
 img:hover {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.9);
     transition: all 0.5s ease;
@@ -172,9 +183,9 @@ audio {
 iframe {
     max-width: 100%;
     max-height: 100%;
- 
+
     width: 90%;
-    height: 500px !important; 
+    height: 500px !important;
 }
 
 
@@ -195,7 +206,8 @@ iframe {
     overflow: auto;
     scrollbar-color: rgb(236, 234, 234) white;
     background-color: white;
-    border: 1px solid rgb(231, 228, 228); /* Added border style */
+    border: 1px solid rgb(231, 228, 228);
+    /* Added border style */
 
     /* Light gray */
     scrollbar-width: thin;
@@ -244,8 +256,9 @@ iframe {
 }
 
 .main-content {
-    margin-left: 2vw;
-    min-width: 0; /* prevent flex overflow */
+    margin-left: 0px;
+    min-width: 0;
+    /* prevent flex overflow */
 
 }
 
@@ -560,9 +573,10 @@ iframe {
 }
 
 .formatting-tools button {
-    padding: 5px 10px;
+    padding-right: 15px;
+    font-size: medium;
     background: none;
-    border: 1px solid #e0e0e0;
+    border: 0 solid #e0e0e0;
     border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.2s;
@@ -596,7 +610,8 @@ iframe {
 .recent-notes {
     flex: 1;
     width: 100%;
-    min-width: 0; /* allow flex child to shrink */
+    min-width: 0;
+    /* allow flex child to shrink */
     display: flex;
     align-items: center;
     overflow: visible;
@@ -631,12 +646,12 @@ iframe {
 }
 
 /* Dropdown for overflow notes */
-.recent-dropdown 
-{ 
-    position: absolute; 
+.recent-dropdown {
+    position: absolute;
     right: 20px;
-    display: inline-block; 
+    display: inline-block;
 }
+
 .recent-dropdown-btn {
     padding: 4px 10px;
     font-size: 14px;
@@ -646,7 +661,10 @@ iframe {
     border-radius: 4px;
     cursor: pointer;
 }
-.recent-dropdown-btn:hover { background-color: #eaeaea; }
+
+.recent-dropdown-btn:hover {
+    background-color: #eaeaea;
+}
 
 .recent-dropdown-menu {
     position: absolute;
@@ -660,15 +678,19 @@ iframe {
     background: #fff;
     border: 1px solid #e5e5e5;
     border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
+
 .recent-dropdown-item {
     padding: 8px 12px;
     font-size: 14px;
     color: #333;
     cursor: pointer;
 }
-.recent-dropdown-item:hover { background-color: #f7f7f7; }
+
+.recent-dropdown-item:hover {
+    background-color: #f7f7f7;
+}
 
 .note-title[placeholder]:empty:before {
     content: attr(placeholder);
@@ -686,6 +708,7 @@ iframe {
     overflow-x: hidden;
     word-break: break-word;
     overflow-wrap: anywhere;
+    margin-left: 10px;
 }
 
 [contenteditable=true]:empty:before {
@@ -703,10 +726,10 @@ iframe {
     border-radius: 4px;
     height: 500px;
     border: 1px solid #e0e0e0;
-    
+
 }
 
-.showcomment{
+.showcomment {
     position: fixed !important;
     bottom: 10px;
     left: 10px;
@@ -719,7 +742,7 @@ iframe {
     box-shadow: 0 -8px 10px rgba(0, 0, 0, 0.315);
 }
 
-.topcomment{
+.topcomment {
     z-index: 111;
 }
 
@@ -879,11 +902,13 @@ pre code {
 
 /* Mobile-safe media sizing and wrapping */
 @media (max-width: 768px) {
+
     .editor img,
     .editor video {
         max-width: 100% !important;
         height: auto !important;
     }
+
     .editor iframe {
         max-width: 100% !important;
     }
@@ -915,8 +940,8 @@ pre code {
 }
 
 .modal-header {
-   margin: 0;
-   padding: 0;
+    margin: 0;
+    padding: 0;
 }
 
 
@@ -1137,7 +1162,7 @@ pre code {
 
 .ai-input-shortcuts {
     display: flex;
-            flex-wrap: wrap;
+    flex-wrap: wrap;
 
 }
 
@@ -1173,10 +1198,12 @@ pre code {
     padding: 10px 14px;
     border: none;
     border-radius: 12px;
-    background: #eef2ff; /* soft blue */
+    background: #eef2ff;
+    /* soft blue */
     font-size: 13px;
     font-weight: 600;
-    color: #1e3a8a; /* indigo-900 */
+    color: #1e3a8a;
+    /* indigo-900 */
     text-align: left;
     cursor: pointer;
     line-height: 1;
@@ -1185,7 +1212,8 @@ pre code {
 }
 
 .model-select-btn:hover {
-    background: #e0e7ff; /* a bit deeper */
+    background: #e0e7ff;
+    /* a bit deeper */
     box-shadow: 0 6px 16px rgba(37, 99, 235, 0.12);
 }
 
@@ -1211,6 +1239,7 @@ pre code {
     overflow-y: auto;
     margin-top: 6px;
 }
+
 .model-else {
 
     width: 100%;
@@ -1220,7 +1249,8 @@ pre code {
     font-family: monospace;
     height: 50px;
 }
-.tool-prompt  {
+
+.tool-prompt {
     width: 100%;
     padding: 8px;
     border: 1px solid #ced4da;
@@ -1230,7 +1260,7 @@ pre code {
 }
 
 .tool-prompt:focus {
-    height: 100px;    
+    height: 100px;
 }
 
 .model-options.show {
@@ -1251,7 +1281,8 @@ pre code {
 }
 
 .model-options button:hover {
-    background: #eff6ff; /* light blue hover */
+    background: #eff6ff;
+    /* light blue hover */
 }
 
 /* Modern model response tabs */
@@ -1463,8 +1494,9 @@ pre code {
 /* Pin Block Button Styles */
 
 .highlight {
-    
-    border: 1px solid lightblue; /* Added border style */
+
+    border: 1px solid lightblue;
+    /* Added border style */
 
 }
 
@@ -1700,7 +1732,7 @@ pre code {
     left: 50px;
     max-width: 100000px;
     max-height: 100000px;
-    
+
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
     z-index: 1000;
 }
