@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login/Register - Notion-like Editor</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
     <style>
@@ -14,19 +14,22 @@
             margin: 0;
             padding: 0;
         }
+
         .auth-container {
             max-width: 420px;
             margin: 60px auto;
             padding: 30px;
             background: #ffffff;
             border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
+
         .auth-form {
             display: flex;
             flex-direction: column;
             gap: 20px;
         }
+
         .auth-form input {
             padding: 12px;
             border: 1px solid #ccc;
@@ -34,10 +37,12 @@
             font-size: 16px;
             transition: border-color 0.3s, box-shadow 0.3s;
         }
+
         .auth-form input:focus {
             border-color: #3498db;
             box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
         }
+
         .auth-form button {
             padding: 12px;
             background-color: #3498db;
@@ -48,15 +53,18 @@
             font-size: 16px;
             transition: background-color 0.3s, transform 0.2s;
         }
+
         .auth-form button:hover {
             background-color: #2980b9;
             transform: translateY(-2px);
         }
+
         .switch-form {
             text-align: center;
             margin-top: 20px;
             font-size: 14px;
         }
+
         .error-message {
             color: #e74c3c;
             text-align: center;
@@ -66,132 +74,34 @@
         }
     </style>
 </head>
+
 <body>
     <div class="auth-container">
-        <div id="loginForm" class="auth-form">
+        <form id="loginForm" class="auth-form">
             <h2>Login</h2>
             <div class="error-message" id="loginError"></div>
             <input type="text" id="loginUserId" placeholder="User ID" required>
             <input type="password" id="loginPassword" placeholder="Password" required>
-            <button id="loginBtn" onclick="handleLogin()">Login</button>
+            <button id="loginBtn" type="submit">Login</button>
             <div class="switch-form">
-                Don't have an account? <a href="#" onclick="toggleForms()">Register</a>
+                Don't have an account? <a href="#" data-auth-toggle>Register</a>
             </div>
-        </div>
+        </form>
 
-        <div id="registerForm" class="auth-form" style="display: none;">
+        <form id="registerForm" class="auth-form" style="display: none;">
             <h2>Register</h2>
             <div class="error-message" id="registerError"></div>
             <input type="text" id="registerUserId" placeholder="Choose User ID" required>
             <input type="password" id="registerPassword" placeholder="Choose Password" required>
             <input type="email" id="registerEmail" placeholder="Email">
-            <button onclick="handleRegister()">Register</button>
+            <button id="registerBtn" type="submit">Register</button>
             <div class="switch-form">
-                Already have an account? <a href="#" onclick="toggleForms()">Login</a>
+                Already have an account? <a href="#" data-auth-toggle>Login</a>
             </div>
-        </div>
+        </form>
     </div>
 
-    <script>
-        const API_BASE_URL = 'https://notais.suisuy.eu.org';
-
-        // Function to toggle between login and register forms
-        function toggleForms() {
-            const loginForm = document.getElementById('loginForm');
-            const registerForm = document.getElementById('registerForm');
-            if (loginForm.style.display === 'none') {
-                loginForm.style.display = 'block';
-                registerForm.style.display = 'none';
-            } else {
-                loginForm.style.display = 'none';
-                registerForm.style.display = 'block';
-            }
-        }
-
-        async function apiRequest(method, endpoint, body = null) {
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-
-            try {
-                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-                    method,
-                    headers,
-                    body: body ? JSON.stringify(body) : null
-                });
-                return await response.json();
-            } catch (error) {
-                console.error('API Error:', error);
-                return { error: 'Network error' };
-            }
-        }
-
-        async function handleLogin() {
-            document.querySelector('#loginBtn').disabled = true;
-            document.querySelector('#loginBtn').textContent = 'Logging in...';
-            const userId = document.getElementById('loginUserId').value;
-            const password = document.getElementById('loginPassword').value;
-            const errorElement = document.getElementById('loginError');
-
-            if (!userId || !password) {
-                errorElement.textContent = 'Please fill in all fields';
-                errorElement.style.display = 'block';
-                return;
-            }
-
-            // Test the credentials
-            try {
-                const passwordHash = CryptoJS.SHA256(password).toString();
-                const credentials = (`${userId}:${passwordHash}`);
-                const headers = {
-                    'Authorization': `Basic ${credentials}`
-                };
-                const response = await fetch(`${API_BASE_URL}/notes`, { headers });
-                const result = await response.json();
-
-                if (!result.error) {
-                    localStorage.setItem('userId', userId);
-                    localStorage.setItem('credentials', credentials);
-                    window.location.href = 'index.html';
-                } else {
-                    errorElement.textContent = 'Login failed. Please check your credentials.';
-                    errorElement.style.display = 'block';
-                }
-            } catch (error) {
-                errorElement.textContent = 'Network error occurred. Please try again.';
-                errorElement.style.display = 'block';
-            }
-            
-        }
-
-        async function handleRegister() {
-            const userId = document.getElementById('registerUserId').value;
-            const password = document.getElementById('registerPassword').value;
-            const email = document.getElementById('registerEmail').value;
-            const errorElement = document.getElementById('registerError');
-
-            if (!userId || !password) {
-                errorElement.textContent = 'Please fill in all required fields';
-                errorElement.style.display = 'block';
-                return;
-            }
-
-            const passwordHash = CryptoJS.SHA256(password).toString();
-            const result = await apiRequest('POST', '/users', {
-                user_id: userId,
-                password_hash: passwordHash,
-                email: email || null
-            });
-
-            if (result.success) {
-                localStorage.setItem('userId', userId);
-                localStorage.setItem('passwordHash', passwordHash);
-                window.location.href = 'index.html';
-            } else {
-                errorElement.textContent = 'Registration failed. Please try a different user ID.';
-                errorElement.style.display = 'block';
-            }
-        }
-    </script>
+    <script type="module" src="src/pages/auth.js"></script>
 </body>
+
 </html>

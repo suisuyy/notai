@@ -1,0 +1,226 @@
+const mixin = {
+  showNewFolderInput() {
+    const inputContainer = document.querySelector(".folder-input-container");
+    const input = document.getElementById("newFolderInput");
+    inputContainer.style.display = "flex";
+    input.value = "";
+    input.focus();
+  },
+
+  hideNewFolderInput() {
+    const inputContainer = document.querySelector(".folder-input-container");
+    inputContainer.style.display = "none";
+  },
+
+  async createFolder() {
+    const input = document.getElementById("newFolderInput");
+    let folderName = input.value.trim();
+
+    if (!folderName) {
+      alert("Please enter a folder name");
+      return;
+    }
+
+    // Replace spaces with underscores
+    folderName = folderName.replace(/\s+/g, '_');
+
+    const result = await this.apiRequest("POST", "/folders", {
+      folder_id: Date.now() + folderName + Math.random(),
+      name: folderName,
+    });
+
+    if (result.success) {
+      this.hideNewFolderInput();
+      await this.loadFolders();
+    } else {
+      alert("Failed to create folder: " + (result.error || "Unknown error"));
+    }
+  },
+
+  async loadFolders(parentFolderId = null) {
+    const endpoint = parentFolderId
+      ? `/folders/${parentFolderId}/contents`
+      : "/folders";
+    const folders = await this.apiRequest("GET", endpoint);
+    if (Array.isArray(folders)) {
+      const foldersList = document.getElementById("folders");
+      foldersList.innerHTML = "";
+
+      // Create a map of parent-child relationships
+      const folderMap = new Map();
+      const rootFolders = [];
+
+      folders.forEach((folder) => {
+        folder.children = [];
+        folderMap.set(folder.folder_id, folder);
+        if (folder.parent_folder_id) {
+          const parent = folderMap.get(folder.parent_folder_id);
+          if (parent) {
+            parent.children.push(folder);
+          }
+        } else {
+          rootFolders.push(folder);
+        }
+      });
+
+      // Recursive function to render folder hierarchy
+      const renderFolder = (folder, level = 0) => {
+        const folderElement = document.createElement("div");
+        folderElement.className = "folder-item";
+        folderElement.setAttribute("data-folder-id", folder.folder_id);
+        folderElement.style.paddingLeft = `${level * 20}px`;
+        folderElement.innerHTML = `
+                    <div class="folder-content">
+                        <i class="fas fa-folder"></i>
+                        <span>${folder.folder_name}</span>
+                        <div class="folder-count">${' '
+          }</div>
+                    </div>
+                    <button class="add-note-btn" title="Add note to folder">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                `;
+
+        // Add click handler for the folder itself
+        folderElement.querySelector(".folder-content").onclick = async (e) => {
+          e.stopPropagation();
+          // Load and display folder contents
+          await this.loadFolderContents(folder.folder_id, folderElement);
+        };
+
+        // Add click handler for the add note button
+        const addNoteBtn = folderElement.querySelector(".add-note-btn");
+        addNoteBtn.onclick = (e) => {
+          e.stopPropagation();
+          this.createNewNote(folder.folder_id);
+        };
+
+        foldersList.appendChild(folderElement);
+
+        // Recursively render children
+        folder.children.forEach((child) => {
+          renderFolder(child, level + 1);
+        });
+      };
+
+      // Render root folders
+      rootFolders.forEach((folder) => {
+        renderFolder(folder);
+      });
+    }
+  },
+
+  async loadFolderContents(folderId, folderElement) {
+    // Check if content already exists in DOM
+    let contentContainer = folderElement.nextElementSibling;
+    if (contentContainer && contentContainer.classList.contains("folder-contents")) {
+      contentContainer.remove();
+      folderElement.classList.remove("open");
+      return;
+    }
+
+    folderElement.classList.add("open");
+
+    // Create container for folder contents
+    contentContainer = document.createElement("div");
+    contentContainer.className = "folder-contents";
+
+    try {
+      // First try to get from cache
+      const cache = await caches.open('folders-cache');
+      const cachedResponse = await cache.match(`folder-${folderId}`);
+      let cachedData = null;
+
+      if (cachedResponse) {
+        cachedData = await cachedResponse.json();
+        // Render cached data first
+        this.renderFolderContents(cachedData.notes, cachedData.folders, contentContainer);
+        // Insert content container after the folder element
+        folderElement.after(contentContainer);
+      }
+
+      // Then fetch from remote
+      const [notes, folders] = await Promise.all([
+        this.apiRequest("GET", `/folders/${folderId}/notes`),
+        this.apiRequest("GET", `/folders/${folderId}/contents`)
+      ]);
+
+      const remoteData = { notes, folders };
+
+      // Check if remote data is different from cache
+      if (!cachedData || JSON.stringify(remoteData) !== JSON.stringify(cachedData)) {
+        // Update cache
+        await cache.put(
+          `folder-${folderId}`,
+          new Response(JSON.stringify(remoteData))
+        );
+
+        // Update UI with new data
+        contentContainer.innerHTML = ''; // Clear existing content
+        this.renderFolderContents(notes, folders, contentContainer);
+
+        if (!cachedData) {
+          // If there was no cached data, insert container now
+          folderElement.after(contentContainer);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error loading folder contents:', error);
+      if (!contentContainer.hasChildNodes()) {
+        contentContainer.innerHTML = '<div class="error">Error loading contents</div>';
+        folderElement.after(contentContainer);
+      }
+    }
+  },
+
+  renderFolderContents(notes, folders, container) {
+    // Render notes
+    if (Array.isArray(notes)) {
+      notes.forEach((note) => {
+        const noteElement = document.createElement("div");
+        noteElement.className = "page-item folder-note";
+        noteElement.innerHTML = `
+          <i class="fas fa-file-alt"></i>
+          <span>${note.title || "Untitled"}</span>
+        `;
+        noteElement.onclick = () => this.loadNote(note.note_id);
+        container.appendChild(noteElement);
+      });
+    }
+
+    // Render folders
+    if (Array.isArray(folders)) {
+      folders.forEach((folder) => {
+        const subFolderElement = document.createElement("div");
+        subFolderElement.className = "folder-item sub-folder";
+        subFolderElement.innerHTML = `
+          <div class="folder-content">
+            <i class="fas fa-folder"></i>
+            <span>${folder.folder_name}</span>
+            <button class="add-note-btn" title="Add note to folder">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+        `;
+
+        // Add click handler for the folder
+        subFolderElement.querySelector(".folder-content").onclick = (e) => {
+          e.stopPropagation();
+          this.loadFolderContents(folder.folder_id, subFolderElement);
+        };
+
+        // Add click handler for the add note button
+        const addNoteBtn = subFolderElement.querySelector(".add-note-btn");
+        addNoteBtn.onclick = (e) => {
+          e.stopPropagation();
+          this.createNewNote(folder.folder_id);
+        };
+
+        container.appendChild(subFolderElement);
+      });
+    }
+  },
+};
+
+export default mixin;
