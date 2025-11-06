@@ -874,9 +874,49 @@ const mixin = {
     if (!selection.rangeCount) return;
 
     const range = selection.getRangeAt(0);
-    const selectedText = range.toString();
+    // Robustly extract selection text while preserving logical line breaks
+    const extractTextWithLineBreaks = (range) => {
+      const frag = range.cloneContents();
+      let out = '';
+      const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          out += node.nodeValue;
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          node.childNodes && node.childNodes.forEach(walk);
+          return;
+        }
+        const tag = node.tagName;
+        if (tag === 'BR') {
+          out += '\n';
+          return;
+        }
+        node.childNodes && node.childNodes.forEach(walk);
+        if (/^(DIV|P|LI|H1|H2|H3|H4|H5|H6|PRE|BLOCKQUOTE)$/i.test(tag)) {
+          if (!out.endsWith('\n')) out += '\n';
+        }
+      };
+      walk(frag);
+      return out.replace(/\n+$/, '');
+    };
+
+    const selectedText = extractTextWithLineBreaks(range);
 
     if (!selectedText) return;
+
+    // Helper: build a fragment that preserves newlines using <br>
+    const buildPlainFragment = (text) => {
+      const frag = document.createDocumentFragment();
+      const parts = text.split(/\r?\n/);
+      parts.forEach((part, idx) => {
+        frag.appendChild(document.createTextNode(part));
+        if (idx < parts.length - 1) {
+          frag.appendChild(document.createElement('br'));
+        }
+      });
+      return frag;
+    };
 
     // Insert a temporary span with the raw text at the selection
     const tempSpan = document.createElement('span');
@@ -931,7 +971,8 @@ const mixin = {
 
       // Insert the selected portion as plain text block
       const plainDiv = document.createElement('div');
-      plainDiv.textContent = tempSpan.textContent;
+      // Preserve line breaks inside the plain block
+      plainDiv.appendChild(buildPlainFragment(tempSpan.textContent));
       parent.insertBefore(plainDiv, nextSibling);
 
       // Insert after-heading portion (still a heading)
@@ -951,13 +992,18 @@ const mixin = {
       return;
     }
 
-    // Otherwise, not inside a heading: replace the temp span with a pure text node
-    const plainTextNode = document.createTextNode(tempSpan.textContent);
-    tempSpan.parentNode.replaceChild(plainTextNode, tempSpan);
+    // Otherwise, not inside a heading: replace the temp span with a fragment that preserves newlines
+    const frag = buildPlainFragment(tempSpan.textContent);
+    const parent = tempSpan.parentNode;
+    parent.insertBefore(frag, tempSpan);
+    // After inserting a fragment, the node just before tempSpan is the last inserted node
+    const lastInserted = tempSpan.previousSibling;
+    parent.removeChild(tempSpan);
 
     // Place caret after the inserted plain text
     const afterRange = document.createRange();
-    afterRange.setStartAfter(plainTextNode);
+    // Place caret right after the last inserted node
+    afterRange.setStartAfter(lastInserted);
     afterRange.collapse(true);
     selection.removeAllRanges();
     selection.addRange(afterRange);

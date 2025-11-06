@@ -17,17 +17,11 @@ follow the # princple ,complete # newtasks in TODO.md
 
 
 ## princple
-keep code simple and clean, utilze module and MVC(for gui app).
+keep code simple and clean, utilze module and MVC(for UI).
 make sure the UI looks clean, modern , by using minimal style.
 
 
 
 # newtask
-improve format tool plain text, current it will replace all newline with space for multiline, like if user select:
-1
-2
-3
-then use plain text to remove format,it will become:
-1 2 3 4
-
+(empty)
 

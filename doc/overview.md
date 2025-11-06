@@ -59,4 +59,8 @@ Source (`src/`)
 - Inconsistent localStorage keys (e.g., AI model preferences). Reuse existing keys and patterns (`aiModelPreferences`, etc.).
 - Changing CSS used by dynamic components (dropdowns, toolbar) without checking class hooks expected by JS.
 - Hardcoding endpoints in modules. Always import from `src/config.js`.
-
+ - Collapsing newlines when converting selection to plain text. Use newline-preserving fragments (`<br>` between lines) instead of a single text node. See `convertToPlainText()` in `src/editor/HTMLEditor/notes.js`.
+ - Replacing selections with `innerHTML` strings. Prefer `textContent` to strip formatting safely, then explicitly add structural nodes (e.g., `<br>`) as needed.
+ - Losing caret position after DOM surgery. After inserts/replacements, programmatically place the selection at a sensible position using `Range` and `Selection` APIs.
+ - Attaching duplicate event listeners on re-init. Remove or de-dupe listeners when re-rendering toolbars or switching views.
+ - Invoking `document.execCommand('removeFormat')` outside a selection. Ensure the intended content is selected first; this API is legacy and should be used carefully.
