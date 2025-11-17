@@ -164,6 +164,53 @@ const mixin = {
     return text.replace(/\n/g, '<br>');
   },
 
+  insertPlainTextAtSelection(text) {
+    if (typeof text !== 'string' || text.length === 0) {
+      return false;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) {
+      return false;
+    }
+
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const parts = normalized.split('\n');
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const fragment = document.createDocumentFragment();
+    let lastNode = null;
+
+    parts.forEach((part, index) => {
+      const textNode = document.createTextNode(part);
+      fragment.appendChild(textNode);
+      lastNode = textNode;
+
+      if (index < parts.length - 1) {
+        const br = document.createElement('br');
+        fragment.appendChild(br);
+        lastNode = br;
+      }
+    });
+
+    range.insertNode(fragment);
+
+    if (lastNode) {
+      const afterRange = document.createRange();
+      afterRange.setStartAfter(lastNode);
+      afterRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(afterRange);
+    } else {
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    return true;
+  },
+
   htmlToMarkdown(html) {
     // Basic HTML to MD conversion
     let md = html;
@@ -875,11 +922,40 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
           }
         });
 
-        this.editor.addEventListener('paste', () => {
+        this.editor.addEventListener('paste', (event) => {
+          let handled = false;
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount) {
+            const range = selection.getRangeAt(0);
+            const startNode = range.startContainer;
+            const anchorElement = startNode?.nodeType === Node.ELEMENT_NODE
+              ? startNode
+              : startNode?.parentElement;
+            const block = anchorElement?.closest?.('.block') || this.currentBlock;
+
+            const dataTransfer = event.clipboardData || window.clipboardData;
+            if (block && dataTransfer) {
+              const hasFiles = dataTransfer.files && dataTransfer.files.length > 0;
+              let plainText = '';
+              try {
+                plainText = dataTransfer.getData('text/plain') || dataTransfer.getData('Text') || '';
+              } catch (_) {
+                plainText = '';
+              }
+
+              if (!hasFiles && plainText) {
+                event.preventDefault();
+                handled = this.insertPlainTextAtSelection(plainText);
+                if (handled) {
+                  this.currentBlock = block;
+                }
+              }
+            }
+          }
+
           this.delayedSaveNote();
           setTimeout(() => {
             this.cleanNote();
-
           }, 1000);
         });
 
