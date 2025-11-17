@@ -17,6 +17,7 @@ Top-level
 
 Source (`src/`)
 - `src/main.js` — App bootstrap: editor init, cache warming, global listeners.
+  - Controls global in‑app modals (login, update) via `window.showLoginPrompt()` and `window.showUpdatePrompt()`.
 - `src/config.js` — Configuration constants (API endpoints, cache name, proxy URL).
 - `src/utils/index.js` — Small utility helpers used across modules.
 - `src/state/` — Simple “model” layer for runtime state.
@@ -49,10 +50,13 @@ Source (`src/`)
 - Configure API endpoints in `src/config.js` when pointing to different backends.
 
 ## Common Mistakes
+- Using native `alert/confirm/prompt` for core flows (login, update). Prefer in‑app modals for a non‑blocking, consistent UX.
+- Forcing automatic reload after an update. Prompt the user to reload instead and only act on explicit confirmation.
 - Duplicate element IDs in HTML cause event/selector conflicts. Prefer classes or unique IDs per page.
 - Bypassing `src/editor/HTMLEditor/api.js` and calling `fetch` directly leads to inconsistent error handling. Route network calls through the API helpers.
 - Forgetting to refresh UI after mutations. For example, call `loadFolders()` after folder CRUD, and re-render note lists after note changes.
 - Adding new static files without updating the warm cache list (`CORE_CACHE_ITEMS`) breaks offline behavior.
+- Not updating the note cache after a successful save or conflict resolution. After POST/PUT completes or when loading a newer remote copy during sync, write the note into `notes-cache` via `updateNoteCache()` so offline reads stay fresh.
 - Mixing inline styles/scripts with module code. Keep behavior in JS modules and styles in `styles.css`.
 - Blocking the UI during long AI operations without using the spinner/toolbar state handlers from `core.js`.
 - Leaking media streams. Always call `stopMediaTracks` (wired in `src/main.js`) when leaving the page or hiding media.
@@ -65,6 +69,9 @@ Source (`src/`)
  - Attaching duplicate event listeners on re-init. Remove or de-dupe listeners when re-rendering toolbars or switching views.
 - Invoking `document.execCommand('removeFormat')` outside a selection. Ensure the intended content is selected first; this API is legacy and should be used carefully.
  - Wrapping selections with strings. Avoid `innerHTML = selectedText`; use `Range.cloneContents()` and `appendChild(fragment)` to preserve formatting safely.
- - Not checking selection containment. Before DOM surgery, verify the selection lives under the editor container to prevent exceptions or misplaced inserts.
+- Not checking selection containment. Before DOM surgery, verify the selection lives under the editor container to prevent exceptions or misplaced inserts.
+- Inconsistent DOM references leading to runtime errors. Reuse the same variable/ID references within a function (e.g., `saveBtn`) instead of mixing names (e.g., `saveNoteBtn`).
  - Inconsistent hit targets in the toolbar. Keep interactive buttons at least ~32px tall/wide for usability; use targeted selectors (e.g., `#addBlockBtn`) rather than broad rules that affect all buttons.
- - Overriding CSS hooks used by JS. Do not remove or rename classes/IDs (like `.block`, `.dropdown`, `#addBlockBtn`) that scripts depend on; instead, extend styles with additive rules.
+- Overriding CSS hooks used by JS. Do not remove or rename classes/IDs (like `.block`, `.dropdown`, `#addBlockBtn`) that scripts depend on; instead, extend styles with additive rules.
+ - Adding UI without keyboard and dismissal affordances. Provide close buttons and backdrop click to dismiss modals when appropriate.
+ - Not exposing small interop hooks when needed. When a module needs to trigger an app‑level UI (e.g., auth prompt), expose a minimal global function instead of sprinkling DOM logic throughout modules.

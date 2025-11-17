@@ -40,6 +40,18 @@ const mixin = {
         });
       }
     });
+
+    // Initialize "Use Comment" checkbox preference
+    try {
+      const cb = document.getElementById('useCommentCheckbox');
+      if (cb) {
+        const saved = localStorage.getItem('aiUseComment');
+        cb.checked = saved === null ? false : saved === 'true';
+        cb.addEventListener('change', () => {
+          localStorage.setItem('aiUseComment', cb.checked ? 'true' : 'false');
+        });
+      }
+    } catch (_) { }
   },
 
   updateModelDropdowns() {
@@ -126,7 +138,9 @@ const mixin = {
     //log last updated time
     console.log('handleaiaction update this.lastupdated:', this.lastUpdated);
 
-    const useComment = text.split(' ').length < 3;
+    // Respect explicit UI toggle instead of auto length-based heuristic
+    const useCommentCheckbox = document.getElementById('useCommentCheckbox');
+    const useComment = !!(useCommentCheckbox && useCommentCheckbox.checked);
 
     let customTool = null;
     let prompt = "";
@@ -164,6 +178,15 @@ const mixin = {
     let selection = window.getSelection();
     let currentBlock = this.currentBlock;
     const range = selection.getRangeAt(0);
+    const selectionRange = range.cloneRange ? range.cloneRange() : range;
+    const selectionAnchorNode = range ? (range.endContainer || range.commonAncestorContainer) : null;
+    let selectionAnchorBlock = null;
+    if (selectionAnchorNode) {
+      const anchorEl = selectionAnchorNode.nodeType === Node.ELEMENT_NODE ? selectionAnchorNode : selectionAnchorNode.parentElement;
+      if (anchorEl) {
+        selectionAnchorBlock = anchorEl.closest('.block');
+      }
+    }
     let commentedSpan = null;
 
     // Check for image in selection or current block
@@ -222,6 +245,15 @@ const mixin = {
     }
 
 
+
+    // To ensure the selected text is never removed when inserting
+    // an AI response block, explicitly clear the active selection
+    // in non-comment mode before we create any new blocks.
+    try {
+      if (!useComment && selection && selection.removeAllRanges) {
+        selection.removeAllRanges();
+      }
+    } catch (_) { }
 
     // build content from audio, image, and video tags
     let content = (imageUrl || audioUrl || videoUrl) ? [
@@ -388,7 +420,8 @@ const mixin = {
         // Ensure a single parent ask group with tabs for normal mode
         let askGroup = this.currentAskGroup;
         if (!askGroup) {
-          askGroup = this.addNewBlock();
+          // Preserve user selection when creating AI response block, and anchor below selection's block
+          askGroup = this.addNewBlock(true, selectionAnchorBlock || selectionAnchorNode, selectionRange);
           askGroup.classList.add('ask-group');
           askGroup.setAttribute('contenteditable', 'false');
           askGroup.innerHTML = '';
@@ -891,7 +924,17 @@ const mixin = {
 
     // Rebind click events
     actionsContainer.querySelectorAll('button').forEach(button => {
+      // Preserve the user's selection across the toolbar click
+      button.addEventListener('mousedown', (e) => {
+        this._savedSelection = this.captureSelection && this.captureSelection();
+        // Prevent focus change from collapsing selection
+        e.preventDefault();
+      });
       button.addEventListener('click', async () => {
+        if (this._savedSelection && this.restoreSelection) {
+          this.restoreSelection(this._savedSelection);
+          this._savedSelection = null;
+        }
         const action = button.dataset.aiAction;
         const selectedText = window.getSelection().toString().trim();
         this.aiToolbar.style.display = 'none';

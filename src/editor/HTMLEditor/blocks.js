@@ -95,7 +95,7 @@ const mixin = {
     this.hideAllDropdowns();
   },
 
-  addNewBlock() {
+  addNewBlock(preserveSelection = false, anchorNode = null, anchorRange = null) {
     // Try to use current selection; if it's gone due to toolbar click,
     // prefer any cached selection restored by core before calling this.
     let selection = window.getSelection();
@@ -109,7 +109,8 @@ const mixin = {
     const selectedText = selection.toString().trim();
 
     // If there is a non-collapsed selection inside the editor, wrap it into a new block
-    if (selection.rangeCount > 0) {
+    // Unless explicitly preserving the selection (used by AI replies)
+    if (!preserveSelection && selection.rangeCount > 0) {
       const selRange = selection.getRangeAt(0);
       const isInEditor = this.editor.contains(selRange.commonAncestorContainer);
       const hasContent = !selRange.collapsed && selectedText.length > 0;
@@ -173,7 +174,7 @@ const mixin = {
     //   return block;
     // }
 
-    // Create new block for non-selected text case
+    // Create new block for non-selected text case, or when preserving selection
     const block = document.createElement("div");
     block.className = "block";
     block.innerHTML = '<br><br><br><br>';
@@ -187,14 +188,35 @@ const mixin = {
 
     // Get current selection and find closest block
     let range;
-    if (selection && selection.rangeCount > 0) {
-      range = selection.getRangeAt(0);
+    if (anchorRange) {
+      range = anchorRange.cloneRange ? anchorRange.cloneRange() : anchorRange;
+    } else if (selection && selection.rangeCount > 0) {
+      const selRange = selection.getRangeAt(0);
+      range = selRange.cloneRange ? selRange.cloneRange() : selRange;
     } else {
       range = document.createRange();
       range.selectNodeContents(this.editor);
       range.collapse(false);
     }
-    let currentBlock = this.currentBlock;
+    // Prefer the block that contains the selection (or provided anchorNode)
+    let currentBlock = null;
+    try {
+      const anchor = anchorNode || (selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null);
+      if (anchor) {
+        let el = anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement;
+        if (el) currentBlock = el.closest('.block');
+        if (!currentBlock && this.editor) {
+          const blocks = Array.from(this.editor.querySelectorAll('.block'));
+          currentBlock = blocks.find((blockEl) => blockEl.contains(anchor));
+        }
+        if (!currentBlock) currentBlock = this.getCurrentOtterBlock(anchor);
+      }
+    } catch (_) { }
+    // Fallback to the last known currentBlock
+    if (!currentBlock) currentBlock = this.currentBlock;
+    if (currentBlock instanceof HTMLElement) {
+      this.currentBlock = currentBlock;
+    }
 
     // Insert the block after the cursor position
     const blankLine = document.createElement('br');
