@@ -136,6 +136,7 @@ class HTMLEditor {
     this.checkAuthAndLoadNotes();
     this.loadFolders();
     this.setupCodeCopyButton();
+    this.setupBlockControls();
 
     // Initialize undo/redo history
     this.initializeHistory();
@@ -153,7 +154,10 @@ class HTMLEditor {
 
       this.currentBlock = this.getCurrentOtterBlock(e.target);
 
-      if (e.target.classList.contains('block')) {
+      if (this.currentBlock) {
+        this.showBlockControls(this.currentBlock);
+      } else {
+        this.hideBlockControls();
       }
 
       console.log('current blcok', this.currentBlock)

@@ -38,6 +38,12 @@ textarea {
 
 }
 
+input,
+textarea,
+select {
+    font-size: 16px;
+}
+
 .code-copy-btn {
     position: fixed;
     display: none;
@@ -213,6 +219,50 @@ iframe {
     scrollbar-width: thin;
     word-break: break-word;
     overflow-wrap: anywhere;
+}
+
+.block-controls {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15);
+    z-index: 400;
+    pointer-events: auto;
+    backdrop-filter: blur(4px);
+}
+
+.block-controls[data-position="bottom"] {
+    box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.12);
+}
+
+.block-control-btn {
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: #334155;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+    padding: 0;
+    user-select: none;
+}
+
+.block-control-btn:hover {
+    background: rgba(59, 130, 246, 0.12);
+    color: #0f172a;
+}
+
+.block-control-btn:active {
+    transform: scale(0.92);
 }
 
 

@@ -120,6 +120,328 @@ const mixin = {
     });
   },
 
+  setupBlockControls() {
+    if (!this.editor || this._blockControlsInitialized) {
+      return;
+    }
+
+    this._blockControlsInitialized = true;
+    this.blockControlsTarget = null;
+
+    const controls = document.createElement('div');
+    controls.id = 'activeBlockControls';
+    controls.className = 'block-controls';
+    controls.dataset.position = 'top';
+    controls.setAttribute('role', 'toolbar');
+    controls.setAttribute('aria-label', 'Block shortcuts');
+    controls.setAttribute('contenteditable', 'false');
+    controls.style.display = 'none';
+
+    const createButton = (iconClass, label) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'block-control-btn';
+      btn.innerHTML = `<i class="fas ${iconClass}"></i>`;
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      return btn;
+    };
+
+    const gotoTopBtn = createButton('fa-arrow-up', 'Scroll block to top');
+    const gotoBottomBtn = createButton('fa-arrow-down', 'Scroll block to bottom');
+    const focusBtn = createButton('fa-bullseye', 'Move block into view');
+    const copyBtn = createButton('fa-copy', 'Copy block contents');
+    copyBtn.dataset.originalIcon = copyBtn.innerHTML;
+
+    const scrollBlock = (target, topValue) => {
+      if (!target) return;
+      if (typeof target.scrollTo === 'function') {
+        target.scrollTo({ top: topValue, behavior: 'smooth' });
+      } else {
+        target.scrollTop = topValue;
+      }
+    };
+
+    gotoTopBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      scrollBlock(this.blockControlsTarget, 0);
+    });
+
+    gotoBottomBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (this.blockControlsTarget) {
+        scrollBlock(this.blockControlsTarget, this.blockControlsTarget.scrollHeight);
+      }
+    });
+
+    focusBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.focusBlockInViewport(this.blockControlsTarget);
+    });
+
+    copyBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await this.copyActiveBlockContent();
+    });
+
+    controls.append(gotoTopBtn, gotoBottomBtn, focusBtn, copyBtn);
+
+    controls.addEventListener('pointerdown', (event) => {
+      event.stopPropagation();
+    });
+
+    document.body.appendChild(controls);
+
+    this.blockControls = controls;
+    this.blockControlsTopBtn = gotoTopBtn;
+    this.blockControlsBottomBtn = gotoBottomBtn;
+    this.blockControlsFocusBtn = focusBtn;
+    this.blockControlsCopyBtn = copyBtn;
+
+    const repositionControls = () => {
+      if (this.blockControlsTarget) {
+        this.updateBlockControlsPosition(this.blockControlsTarget);
+      }
+    };
+
+    this._boundBlockControlsUpdater = repositionControls;
+
+    this.editor.addEventListener('scroll', repositionControls, { passive: true });
+    window.addEventListener('resize', repositionControls);
+    window.addEventListener('scroll', repositionControls, { passive: true });
+    this.editor.addEventListener('input', () => {
+      if (this.blockControlsTarget && !this.blockControlsTarget.isConnected) {
+        this.hideBlockControls();
+      }
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (!this.blockControlsTarget) return;
+      if (event.target.closest('.block-controls')) return;
+      if (event.target.closest('.block')) return;
+      this.hideBlockControls();
+    });
+  },
+
+  showBlockControls(block) {
+    if (!this.blockControls || !block) {
+      return;
+    }
+
+    if (!block.isConnected) {
+      this.hideBlockControls();
+      return;
+    }
+
+    this.blockControlsTarget = block;
+    this.blockControls.style.display = 'flex';
+
+    requestAnimationFrame(() => this.updateBlockControlsPosition(block));
+  },
+
+  hideBlockControls() {
+    if (!this.blockControls) {
+      return;
+    }
+
+    this.blockControlsTarget = null;
+    this.blockControls.style.display = 'none';
+  },
+
+  updateBlockControlsPosition(block) {
+    if (!this.blockControls || !block || !this.blockControlsTarget) {
+      return;
+    }
+
+    if (!block.isConnected) {
+      this.hideBlockControls();
+      return;
+    }
+
+    if (this.blockControls.style.display === 'none') {
+      return;
+    }
+
+    const editorRect = this.editor?.getBoundingClientRect?.();
+    const blockRect = block.getBoundingClientRect();
+
+    if (!editorRect) return;
+
+    const completelyOutOfView = blockRect.bottom < editorRect.top || blockRect.top > editorRect.bottom;
+    if (completelyOutOfView) {
+      this.hideBlockControls();
+      return;
+    }
+
+    const offset = 8;
+    const controlsRect = this.blockControls.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+
+    const anchorBottom = blockRect.top < editorRect.top;
+    let top = anchorBottom
+      ? blockRect.bottom - controlsRect.height - offset
+      : blockRect.top + offset;
+
+    let left = blockRect.right - controlsRect.width - offset;
+
+    const editorLeftLimit = editorRect.left + offset;
+    const editorRightLimit = editorRect.right - controlsRect.width - offset;
+
+    if (editorRightLimit >= editorLeftLimit) {
+      left = Math.max(editorLeftLimit, Math.min(left, editorRightLimit));
+    } else {
+      left = editorRect.left + offset;
+    }
+
+    const maxLeft = viewportWidth - controlsRect.width - offset;
+    left = Math.max(offset, Math.min(left, maxLeft));
+
+    const maxTop = viewportHeight - controlsRect.height - offset;
+
+    if (anchorBottom) {
+      const bottomLimit = Math.min(editorRect.bottom, viewportHeight) - controlsRect.height - offset;
+      top = Math.min(bottomLimit, top);
+      this.blockControls.dataset.position = 'bottom';
+    } else {
+      this.blockControls.dataset.position = 'top';
+    }
+
+    const minTop = Math.max(offset, editorRect.top + offset);
+    top = Math.max(minTop, Math.min(top, maxTop));
+
+    this.blockControls.style.top = `${top}px`;
+    this.blockControls.style.left = `${left}px`;
+  },
+
+  async copyActiveBlockContent() {
+    if (!this.blockControlsTarget) {
+      return;
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      this.showToast('Clipboard access is not available in this browser.', 'error');
+      return;
+    }
+
+    try {
+      const text = this.getBlockPlainText(this.blockControlsTarget);
+
+      if (!text || !text.trim()) {
+        this.showToast('This block is empty.', 'info');
+        return;
+      }
+
+      await navigator.clipboard.writeText(text);
+      this.showBlockCopyFeedback();
+    } catch (error) {
+      console.error('Failed to copy block:', error);
+      this.showToast('Unable to copy block content.', 'error');
+    }
+  },
+
+  showBlockCopyFeedback() {
+    if (!this.blockControlsCopyBtn) return;
+
+    if (!this.blockControlsCopyBtn.dataset.originalIcon) {
+      this.blockControlsCopyBtn.dataset.originalIcon = this.blockControlsCopyBtn.innerHTML;
+    }
+
+    this.blockControlsCopyBtn.innerHTML = '<i class="fas fa-check"></i>';
+
+    clearTimeout(this._blockCopyFeedbackTimer);
+    this._blockCopyFeedbackTimer = setTimeout(() => {
+      if (this.blockControlsCopyBtn) {
+        this.blockControlsCopyBtn.innerHTML = this.blockControlsCopyBtn.dataset.originalIcon;
+      }
+    }, 1500);
+  },
+
+  getBlockPlainText(block) {
+    if (!block) return '';
+
+    const blockLevelTags = new Set([
+      'DIV', 'P', 'LI', 'UL', 'OL', 'SECTION', 'ARTICLE', 'ASIDE', 'PRE', 'BLOCKQUOTE',
+      'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'TR', 'TD', 'TH', 'FIGURE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'
+    ]);
+    const parts = [];
+
+    const appendNewline = () => {
+      if (!parts.length) {
+        parts.push('\n');
+        return;
+      }
+      const last = parts[parts.length - 1];
+      if (last.endsWith('\n')) return;
+      parts.push('\n');
+    };
+
+    const traverse = (node) => {
+      if (!node) return;
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        parts.push(node.nodeValue || '');
+        return;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+
+      const tag = node.tagName;
+
+      if (tag === 'BR') {
+        parts.push('\n');
+        return;
+      }
+
+      Array.from(node.childNodes || []).forEach(traverse);
+
+      if (blockLevelTags.has(tag)) {
+        appendNewline();
+      }
+    };
+
+    traverse(block);
+
+    let text = parts.join('').replace(/\u00A0/g, ' ');
+    text = text.replace(/[ \t]+\n/g, '\n');
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trimEnd();
+  },
+
+  focusBlockInViewport(block) {
+    if (!block) return;
+
+    const editor = this.editor;
+
+    if (!editor) {
+      block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
+    const editorRect = editor.getBoundingClientRect();
+    const blockRect = block.getBoundingClientRect();
+
+    const blockOffsetWithinEditor = blockRect.top - editorRect.top + editor.scrollTop;
+    const desiredOffset = editor.clientHeight * 0.25;
+    const targetScroll = blockOffsetWithinEditor - desiredOffset;
+    const maxScroll = editor.scrollHeight - editor.clientHeight;
+    const clampedScroll = Math.max(0, Math.min(targetScroll, maxScroll));
+
+    editor.scrollTo({ top: clampedScroll, behavior: 'smooth' });
+
+    setTimeout(() => {
+      if (this.blockControlsTarget === block) {
+        this.updateBlockControlsPosition(block);
+      }
+    }, 200);
+  },
+
   showSpinner() {
     const spinner = document.getElementById('loadingSpinner');
     if (!spinner) return;
