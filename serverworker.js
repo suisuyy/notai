@@ -12,10 +12,11 @@
  * - POST /users     : Register a new user
  * - POST /folders   : Create a new folder
  * - GET /folders    : Get all folders for the authenticated user
+ * - DELETE /folders/:id : Delete a folder (and its contents)
  * - GET /notes      : Get all notes
  * - GET /notes/:id  : Get a single note
  * - POST /notes     : Create or update a note
- * - GET /search     : Search notes by keyword
+ * - GET /search     : Search notes and folders by keyword
  * - GET /users/config : Get user config
  * - POST /users/config : Update user config
  */
@@ -312,16 +313,20 @@ async function searchNotes() {
   }
 
   const results = await apiRequest('GET', \`search?term=\${encodeURIComponent(query)}\`);
-  if (Array.isArray(results)) {
+  if (!results.error) {
     const notesList = document.getElementById('notes_list');
     notesList.innerHTML = '';
-    results.forEach(note => {
+    (results.notes || []).forEach(note => {
       const li = document.createElement('li');
       li.textContent = \`\${note.title} (ID: \${note.note_id})\`;
       li.addEventListener('click', () => showNote(note.note_id));
       notesList.appendChild(li);
     });
-    setResponse({ message: \`Found \${results.length} notes matching "\${query}".\` });
+
+    setResponse({
+      message: \`Found \${(results.notes || []).length} notes and \${(results.folders || []).length} folders matching "\${query}".\`,
+      matches: results
+    });
   } else {
     alert('Search failed: ' + (results.error || 'Unknown error'));
   }
@@ -537,6 +542,78 @@ async function handleRequest(request, env) {
             }
         }
 
+        const deleteFolderMatch = pathname.match(/^\/folders\/([^/]+)$/);
+        if (method === "DELETE" && deleteFolderMatch) {
+            const user_id = await authenticate(request);
+            if (!user_id) {
+                return jsonResponse({ error: "Unauthorized" }, 401);
+            }
+
+            const folder_id = decodeURIComponent(deleteFolderMatch[1]);
+            if (!folder_id) {
+                return jsonResponse({ error: "Folder id is required." }, 400);
+            }
+
+            if (folder_id === default_parent_folder) {
+                return jsonResponse({ error: "Cannot delete the default folder." }, 400);
+            }
+
+            try {
+                const ownsFolder = await env.DB.prepare(`
+        SELECT folder_id FROM folders WHERE folder_id = ? AND user_id = ?
+      `).bind(folder_id, user_id).first();
+
+                if (!ownsFolder) {
+                    return jsonResponse({ error: "Folder not found." }, 404);
+                }
+
+                const subtree = await env.DB.prepare(`
+        WITH RECURSIVE folder_tree AS (
+          SELECT folder_id FROM folders WHERE folder_id = ? AND user_id = ?
+          UNION ALL
+          SELECT f.folder_id
+          FROM folders f
+          INNER JOIN folder_tree ft ON f.parent_folder_id = ft.folder_id
+          WHERE f.user_id = ?
+        )
+        SELECT folder_id FROM folder_tree
+      `).bind(folder_id, user_id, user_id).all();
+
+                const folderIds = (subtree.results || []).map((row) => row.folder_id).filter(Boolean);
+                if (!folderIds.length) {
+                    return jsonResponse({ success: true, deleted_folders: 0, deleted_notes: 0 });
+                }
+
+                const placeholders = folderIds.map(() => "?").join(", ");
+                const noteBindings = [user_id, ...folderIds];
+                let deletedNotes = 0;
+
+                if (placeholders) {
+                    const noteCountRow = await env.DB.prepare(
+                        `SELECT COUNT(*) AS count FROM notes WHERE user_id = ? AND folder_id IN (${placeholders})`
+                    ).bind(...noteBindings).first();
+                    deletedNotes = Number(noteCountRow?.count || 0);
+
+                    await env.DB.prepare(
+                        `DELETE FROM notes WHERE user_id = ? AND folder_id IN (${placeholders})`
+                    ).bind(...noteBindings).run();
+
+                    await env.DB.prepare(
+                        `DELETE FROM folders WHERE user_id = ? AND folder_id IN (${placeholders})`
+                    ).bind(user_id, ...folderIds).run();
+                }
+
+                return jsonResponse({
+                    success: true,
+                    deleted_folders: folderIds.length,
+                    deleted_notes: deletedNotes
+                });
+            } catch (e) {
+                console.error("Delete Folder Error:", e);
+                return jsonResponse({ error: "Internal Server Error" }, 500);
+            }
+        }
+
         // GET /folders/:id/contents - Get folder contents
         const folderContentsMatch = pathname.match(/^\/folders\/(.+)\/contents$/);
         if (method === "GET" && folderContentsMatch) {
@@ -683,27 +760,65 @@ async function handleRequest(request, env) {
             }
         }
 
-        // GET /search?term=... - Search notes by keyword
+        // GET /search?term=... - Search notes and folders by keyword
         if (method === "GET" && pathname === "/search") {
             const user_id = await authenticate(request);
             if (!user_id) {
                 return jsonResponse({ error: "Unauthorized" }, 401);
             }
 
-            const term = searchParams.get("term") || "";
+            const term = (searchParams.get("term") || "").trim();
             if (!term) {
                 return jsonResponse({ error: "Search term is required." }, 400);
             }
 
             try {
-                const results = await env.DB.prepare(`
-        SELECT n.note_id, n.title 
-        FROM notes n
-        JOIN note_content nc ON n.note_id = nc.note_id
-        WHERE n.user_id = ? AND nc.content LIKE '%' || ? || '%'
-      `).bind(user_id, term).all();
+                const likeTerm = `%${term}%`;
+                const lowerTerm = term.toLowerCase();
 
-                return jsonResponse(results.results || []);
+                const noteRows = await env.DB.prepare(`
+        SELECT n.note_id, n.title, n.folder_id, n.last_updated, n.content, f.folder_name
+        FROM notes n
+        LEFT JOIN folders f ON n.folder_id = f.folder_id
+        WHERE n.user_id = ? AND (n.title LIKE ? OR n.content LIKE ?)
+        ORDER BY n.last_updated DESC
+        LIMIT 50
+      `).bind(user_id, likeTerm, likeTerm).all();
+
+                const folderRows = await env.DB.prepare(`
+        SELECT folder_id, parent_folder_id, folder_name
+        FROM folders
+        WHERE user_id = ? AND folder_name LIKE ?
+        ORDER BY folder_name ASC
+        LIMIT 20
+      `).bind(user_id, likeTerm).all();
+
+                const notes = (noteRows.results || []).map((row) => {
+                    const title = row.title || "Untitled";
+                    const content = row.content || "";
+                    const contentMatch = content.toLowerCase().includes(lowerTerm);
+                    const match_field = contentMatch ? "content" : "title";
+                    const snippetSource = contentMatch ? content : title;
+                    return {
+                        type: "note",
+                        note_id: row.note_id,
+                        title,
+                        folder_id: row.folder_id,
+                        folder_name: row.folder_name || null,
+                        last_updated: row.last_updated,
+                        match_field,
+                        snippet: buildSnippet(snippetSource, term)
+                    };
+                });
+
+                const folders = (folderRows.results || []).map((row) => ({
+                    type: "folder",
+                    folder_id: row.folder_id,
+                    parent_folder_id: row.parent_folder_id,
+                    folder_name: row.folder_name
+                }));
+
+                return jsonResponse({ term, notes, folders });
             } catch (e) {
                 console.error("Search Notes Error:", e);
                 return jsonResponse({ error: "Internal Server Error" }, 500);
@@ -804,4 +919,46 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
+}
+
+function buildSnippet(text = "", term = "", context = 80) {
+    const sanitized = stripHTML(text);
+    if (!sanitized) return "";
+    const normalizedText = sanitized.replace(/\s+/g, " ").trim();
+    if (!term) {
+        return normalizedText.length > context
+            ? `${normalizedText.slice(0, context)}...`
+            : normalizedText;
+    }
+
+    const lowerText = normalizedText.toLowerCase();
+    const lowerTerm = term.toLowerCase();
+    const index = lowerText.indexOf(lowerTerm);
+
+    if (index === -1) {
+        return normalizedText.length > context
+            ? `${normalizedText.slice(0, context)}...`
+            : normalizedText;
+    }
+
+    const halfContext = Math.floor(context / 2);
+    const start = Math.max(0, index - halfContext);
+    const end = Math.min(normalizedText.length, index + lowerTerm.length + halfContext);
+    let snippet = normalizedText.slice(start, end);
+    if (start > 0) {
+        snippet = `...${snippet}`;
+    }
+    if (end < normalizedText.length) {
+        snippet = `${snippet}...`;
+    }
+    return snippet;
+}
+
+function stripHTML(input = "") {
+    if (!input) return "";
+    return input
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }

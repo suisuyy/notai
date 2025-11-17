@@ -1,3 +1,5 @@
+const DEFAULT_FOLDER_ID = "1733485657799jj0.5911120915160637";
+
 const mixin = {
   showNewFolderInput() {
     const inputContainer = document.querySelector(".folder-input-container");
@@ -69,16 +71,21 @@ const mixin = {
         folderElement.className = "folder-item";
         folderElement.setAttribute("data-folder-id", folder.folder_id);
         folderElement.style.paddingLeft = `${level * 20}px`;
+        const isDefaultFolder = folder.folder_id === DEFAULT_FOLDER_ID;
         folderElement.innerHTML = `
                     <div class="folder-content">
                         <i class="fas fa-folder"></i>
                         <span>${folder.folder_name}</span>
-                        <div class="folder-count">${' '
-          }</div>
+                        <div class="folder-count">&nbsp;</div>
                     </div>
-                    <button class="add-note-btn" title="Add note to folder">
-                        <i class="fas fa-plus"></i>
-                    </button>
+                    <div class="folder-actions">
+                        <button class="add-note-btn" title="Add note to folder">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                        <button class="delete-folder-btn" title="Delete folder" ${isDefaultFolder ? 'disabled' : ''}>
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 `;
 
         // Add click handler for the folder itself
@@ -94,6 +101,14 @@ const mixin = {
           e.stopPropagation();
           this.createNewNote(folder.folder_id);
         };
+
+        const deleteBtn = folderElement.querySelector('.delete-folder-btn');
+        if (deleteBtn) {
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.deleteFolder(folder);
+          };
+        }
 
         foldersList.appendChild(folderElement);
 
@@ -194,12 +209,18 @@ const mixin = {
       folders.forEach((folder) => {
         const subFolderElement = document.createElement("div");
         subFolderElement.className = "folder-item sub-folder";
+        const isDefaultFolder = folder.folder_id === DEFAULT_FOLDER_ID;
         subFolderElement.innerHTML = `
           <div class="folder-content">
             <i class="fas fa-folder"></i>
             <span>${folder.folder_name}</span>
+          </div>
+          <div class="folder-actions">
             <button class="add-note-btn" title="Add note to folder">
               <i class="fas fa-plus"></i>
+            </button>
+            <button class="delete-folder-btn" title="Delete folder" ${isDefaultFolder ? 'disabled' : ''}>
+              <i class="fas fa-trash"></i>
             </button>
           </div>
         `;
@@ -217,8 +238,55 @@ const mixin = {
           this.createNewNote(folder.folder_id);
         };
 
+        const deleteBtn = subFolderElement.querySelector('.delete-folder-btn');
+        if (deleteBtn) {
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            this.deleteFolder(folder);
+          };
+        }
+
         container.appendChild(subFolderElement);
       });
+    }
+  },
+
+  async deleteFolder(folder) {
+    if (!folder || !folder.folder_id) {
+      return;
+    }
+    if (folder.folder_id === DEFAULT_FOLDER_ID) {
+      this.showToast('The default folder cannot be deleted.', 'error');
+      return;
+    }
+
+    const folderName = folder.folder_name || 'this folder';
+    const confirmDelete = confirm(`Delete "${folderName}" and all notes inside it? This cannot be undone.`);
+    if (!confirmDelete) {
+      return;
+    }
+
+    try {
+      const encodedId = encodeURIComponent(folder.folder_id);
+      const response = await this.apiRequest('DELETE', `/folders/${encodedId}`, null, false, true);
+      if (response?.success) {
+        if ('caches' in window) {
+          try {
+            await caches.delete('folders-cache');
+            await caches.delete('notes-cache');
+          } catch (cacheError) {
+            console.warn('Unable to clear folder caches:', cacheError);
+          }
+        }
+        this.showToast(`Deleted "${folderName}".`, 'success');
+        await this.loadFolders();
+        await this.loadNotes();
+      } else {
+        this.showToast(response?.error || 'Failed to delete folder.', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting folder:', error);
+      this.showToast('Failed to delete folder.', 'error');
     }
   },
 };

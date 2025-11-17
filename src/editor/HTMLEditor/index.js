@@ -79,6 +79,15 @@ class HTMLEditor {
       timer: null,
       noteData: null,
     };
+    this._currentNoteSearchMatches = [];
+    this._workspaceSearchResults = null;
+    this._lastSearchTerm = '';
+    this._searchDebounceTimer = null;
+    this._searchUIOpen = false;
+    this._searchContainer = null;
+    this._searchWrapper = null;
+    this._searchInput = null;
+    this._searchToggleBtn = null;
     this.aiSettings = {
       systemPrompt: this.DEFAULT_SYSTEM_PROMPT,
 
@@ -98,6 +107,7 @@ class HTMLEditor {
     this.setupAIToolbar();
     this.setupAISettings();
     this.setupTableOfContents();
+    this.initializeSearchUI();
     this.setupCommentSystem();
     this.updateAIToolbar(); // Load custom AI buttons
 

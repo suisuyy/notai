@@ -1,6 +1,14 @@
 import utils from '../../utils/index.js';
 import globalDevices from '../../state/globalDevices.js';
 
+const ESCAPE_HTML_MAP = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
 const mixin = {
   getCurrentOtterBlock(startElement) {
     if (!startElement) {
@@ -1080,6 +1088,556 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     } catch (error) {
       console.error('Error setting up event listeners:', error);
     }
+  },
+
+  initializeSearchUI() {
+    try {
+      const wrapper = document.getElementById('searchWrapper');
+      const container = document.getElementById('globalSearchContainer');
+      const toggleBtn = document.getElementById('searchToggleBtn');
+      const input = document.getElementById('globalSearchInput');
+      const searchBtn = document.getElementById('globalSearchBtn');
+      const clearBtn = document.getElementById('searchClearBtn');
+      const closeBtn = document.getElementById('searchCloseBtn');
+      const resultsContainer = document.getElementById('searchResults');
+
+      if (!input || !resultsContainer || !wrapper || !container || !toggleBtn) {
+        return;
+      }
+
+      this._searchWrapper = wrapper;
+      this._searchContainer = container;
+      this._searchInput = input;
+      this._searchToggleBtn = toggleBtn;
+
+      const triggerSearch = () => {
+        const term = input.value.trim();
+        if (!term) {
+          this.clearSearchResults({ keepInput: true });
+          return;
+        }
+        this.showSearchUI({ focusInput: false });
+        this.performSearch(term);
+      };
+
+      toggleBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (this._searchUIOpen) {
+          this.hideSearchUI({ keepInput: true });
+        } else {
+          this.showSearchUI({ focusInput: true });
+        }
+      });
+
+      searchBtn?.addEventListener('click', (event) => {
+        event.preventDefault();
+        this.showSearchUI({ focusInput: false });
+        triggerSearch();
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          triggerSearch();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          this.hideSearchUI({ keepInput: true });
+          input.blur();
+        }
+      });
+
+      input.addEventListener('input', () => {
+        const term = input.value.trim();
+        const hasValue = Boolean(term);
+        if (hasValue) {
+          clearBtn?.classList.add('active');
+        } else {
+          clearBtn?.classList.remove('active');
+        }
+
+        if (!hasValue) {
+          this.clearSearchResults({ keepInput: true });
+          return;
+        }
+
+        this.clearSearchResults({ keepInput: true });
+        this.showSearchUI({ focusInput: false });
+
+        const summary = document.getElementById('searchResultsSummary');
+        const currentList = document.getElementById('searchResultsCurrent');
+        const workspaceList = document.getElementById('searchResultsWorkspace');
+
+        if (summary) {
+          summary.textContent = term
+            ? `Press Enter or click the search icon to search for "${term}"`
+            : 'Search across your workspace';
+        }
+        if (currentList) {
+          currentList.innerHTML = '<div class="search-empty">Press Enter to search this note.</div>';
+        }
+        if (workspaceList) {
+          workspaceList.innerHTML = '<div class="search-status">Press Enter or click the search icon to search all notes and folders.</div>';
+        }
+      });
+
+      clearBtn?.addEventListener('click', () => {
+        input.value = '';
+        clearBtn.classList.remove('active');
+        this.clearSearchResults();
+      });
+
+      closeBtn?.addEventListener('click', () => {
+        this.hideSearchUI({ keepInput: true });
+      });
+
+      resultsContainer.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const item = target.closest('.search-result-item');
+        if (!item) {
+          return;
+        }
+
+        const type = item.dataset.resultType;
+        if (type === 'local') {
+          this.focusLocalSearchMatch(item.dataset.matchId || '');
+        } else if (type === 'note') {
+          await this.openRemoteSearchNote(item.dataset.noteId, item.dataset.term);
+        } else if (type === 'folder') {
+          await this.openFolderFromSearch(item.dataset.folderId);
+        } else {
+          return;
+        }
+
+        this.hideSearchUI({ keepInput: true });
+      });
+
+      document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        if (target.closest('#searchWrapper')) {
+          return;
+        }
+        if (this._searchUIOpen) {
+          this.hideSearchUI({ keepInput: true });
+        }
+      }, true);
+
+      this.clearSearchResults({ keepInput: true });
+      this.hideSearchUI({ keepInput: true, reset: false });
+    } catch (error) {
+      console.error('Failed to initialize search UI:', error);
+    }
+  },
+
+  async performSearch(term) {
+    this._lastSearchTerm = term;
+    this._workspaceSearchResults = null;
+    const localMatches = this.searchCurrentNote(term);
+    this.renderSearchResults(term, localMatches, null, { isWorkspaceLoading: true });
+
+    try {
+      const encoded = encodeURIComponent(term);
+      const remote = await this.apiRequest('GET', `/search?term=${encoded}`, null, false, true);
+      if (remote?.error) {
+        throw new Error(remote.error);
+      }
+      if (this._lastSearchTerm !== term) {
+        return;
+      }
+      this._workspaceSearchResults = remote;
+      this.renderSearchResults(term, localMatches, remote);
+    } catch (error) {
+      console.error('Global search error:', error);
+      if (this._lastSearchTerm === term) {
+        this.renderSearchResults(term, localMatches, null, {
+          workspaceError: 'Unable to search all notes. Please try again.',
+        });
+      }
+    }
+  },
+
+  searchCurrentNote(term) {
+    const matches = [];
+    this._currentNoteSearchMatches = [];
+    if (!term || !this.editor) {
+      return matches;
+    }
+
+    const normalizedTerm = term.toLowerCase();
+    const walker = document.createTreeWalker(this.editor, NodeFilter.SHOW_TEXT, null);
+    let matchIndex = 0;
+    const MAX_MATCHES = 50;
+
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const text = node.textContent || '';
+      if (!text.trim()) {
+        continue;
+      }
+      const lower = text.toLowerCase();
+      let fromIndex = 0;
+      while (fromIndex < lower.length) {
+        const foundAt = lower.indexOf(normalizedTerm, fromIndex);
+        if (foundAt === -1) {
+          break;
+        }
+        const id = `local-${matchIndex}`;
+        matchIndex += 1;
+        const excerpt = this.createSearchSnippet(text, foundAt, term.length);
+        const record = {
+          id,
+          node,
+          startOffset: foundAt,
+          endOffset: foundAt + term.length,
+          excerpt,
+        };
+        this._currentNoteSearchMatches.push(record);
+        matches.push({ id, excerpt });
+        fromIndex = foundAt + term.length;
+        if (matches.length >= MAX_MATCHES) {
+          return matches;
+        }
+      }
+      if (matches.length >= MAX_MATCHES) {
+        break;
+      }
+    }
+
+    return matches;
+  },
+
+  renderSearchResults(term, localMatches = [], workspaceResults = null, options = {}) {
+    const container = document.getElementById('searchResults');
+    const summary = document.getElementById('searchResultsSummary');
+    const currentList = document.getElementById('searchResultsCurrent');
+    const workspaceList = document.getElementById('searchResultsWorkspace');
+
+    if (!container || !summary || !currentList || !workspaceList) {
+      return;
+    }
+
+    container.classList.remove('hidden');
+    this.showSearchUI({ focusInput: false });
+
+    if (term) {
+      const totalWorkspaceMatches = workspaceResults
+        ? (workspaceResults.notes?.length || 0) + (workspaceResults.folders?.length || 0)
+        : 0;
+      summary.textContent = workspaceResults
+        ? `Found ${localMatches.length} note matches and ${totalWorkspaceMatches} workspace matches for “${term}”`
+        : `Matches for “${term}”`;
+    } else {
+      summary.textContent = 'Search across your workspace';
+    }
+
+    if (!localMatches.length) {
+      currentList.innerHTML = '<div class="search-empty">No matches in this note.</div>';
+    } else {
+      currentList.innerHTML = '';
+      const fragment = document.createDocumentFragment();
+      const noteLabel = this.currentNoteTitle || 'Current note';
+      localMatches.forEach((match, index) => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.dataset.resultType = 'local';
+        item.dataset.matchId = match.id;
+        item.innerHTML = `
+          <div class="search-result-title">
+            <span class="search-result-label">${this.escapeHTML(noteLabel)}</span>
+            <span class="search-result-title-text">Match #${index + 1}</span>
+          </div>
+          <div class="search-result-snippet">${match.excerpt}</div>
+        `;
+        fragment.appendChild(item);
+      });
+      currentList.appendChild(fragment);
+    }
+
+    if (options.workspaceError) {
+      workspaceList.innerHTML = `<div class="search-status">${this.escapeHTML(options.workspaceError)}</div>`;
+      return;
+    }
+
+    if (options.isWorkspaceLoading) {
+      workspaceList.innerHTML = '<div class="search-status loading">Searching all notes…</div>';
+      return;
+    }
+
+    if (!workspaceResults) {
+      workspaceList.innerHTML = '<div class="search-empty">Press Enter to search all notes and folders.</div>';
+      return;
+    }
+
+    const folderMatches = workspaceResults.folders || [];
+    const noteMatches = workspaceResults.notes || [];
+
+    if (!folderMatches.length && !noteMatches.length) {
+      workspaceList.innerHTML = '<div class="search-empty">No notes or folders matched your search.</div>';
+      return;
+    }
+
+    workspaceList.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+
+    folderMatches.forEach((folder) => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+      item.dataset.resultType = 'folder';
+      item.dataset.folderId = folder.folder_id;
+      item.innerHTML = `
+        <div class="search-result-title">
+          <span class="search-result-label">Folder</span>
+          <span class="search-result-title-text">${this.escapeHTML(folder.folder_name || 'Untitled folder')}</span>
+        </div>
+        <div class="search-result-meta">${folder.parent_folder_id ? 'Nested folder' : 'Top-level folder'}</div>
+      `;
+      fragment.appendChild(item);
+    });
+
+    noteMatches.forEach((note) => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+      item.dataset.resultType = 'note';
+      item.dataset.noteId = note.note_id;
+      item.dataset.term = term;
+      const metaBits = [];
+      if (note.folder_name) {
+        metaBits.push(`In ${note.folder_name}`);
+      }
+      if (note.match_field) {
+        metaBits.push(note.match_field === 'title' ? 'Title match' : 'Content match');
+      }
+      const snippetText = this.stripHTMLTags(note.snippet || '');
+      item.innerHTML = `
+        <div class="search-result-title">
+          <span class="search-result-label">${this.escapeHTML(note.folder_name || 'Note')}</span>
+          <span class="search-result-title-text">${this.escapeHTML(note.title || 'Untitled')}</span>
+        </div>
+        <div class="search-result-meta">${this.escapeHTML(metaBits.join(' • ') || 'Note match')}</div>
+        <div class="search-result-snippet">${this.escapeHTML(snippetText)}</div>
+      `;
+      fragment.appendChild(item);
+    });
+
+    workspaceList.appendChild(fragment);
+  },
+
+  clearSearchResults(options = {}) {
+    const { keepInput = false } = options;
+    const container = document.getElementById('searchResults');
+    const summary = document.getElementById('searchResultsSummary');
+    const currentList = document.getElementById('searchResultsCurrent');
+    const workspaceList = document.getElementById('searchResultsWorkspace');
+    const input = document.getElementById('globalSearchInput');
+    const clearBtn = document.getElementById('searchClearBtn');
+
+    this._lastSearchTerm = '';
+    this._currentNoteSearchMatches = [];
+    this._workspaceSearchResults = null;
+
+    if (!keepInput && input) {
+      input.value = '';
+      clearBtn?.classList.remove('active');
+    }
+
+    container?.classList.remove('hidden');
+    if (summary) {
+      summary.textContent = 'Search across your workspace';
+    }
+    if (currentList) {
+      currentList.innerHTML = '<div class="search-empty">Type in the search box to search this note.</div>';
+    }
+    if (workspaceList) {
+      workspaceList.innerHTML = '<div class="search-empty">Search includes all folders and notes.</div>';
+    }
+  },
+
+  showSearchUI(options = {}) {
+    const { focusInput = false } = options;
+    if (!this._searchContainer || !this._searchWrapper) {
+      return;
+    }
+    this._searchUIOpen = true;
+    this._searchWrapper.classList.add('active');
+    this._searchContainer.classList.remove('hidden');
+    this._searchToggleBtn?.classList.add('active');
+    if (focusInput && this._searchInput) {
+      requestAnimationFrame(() => this._searchInput?.focus());
+    }
+  },
+
+  hideSearchUI(options = {}) {
+    const { keepInput = true, reset = true } = options;
+    if (!this._searchContainer || !this._searchWrapper) {
+      return;
+    }
+    if (reset) {
+      this.clearSearchResults({ keepInput });
+    }
+    this._searchUIOpen = false;
+    this._searchWrapper.classList.remove('active');
+    this._searchContainer.classList.add('hidden');
+    this._searchToggleBtn?.classList.remove('active');
+  },
+
+  focusLocalSearchMatch(matchId) {
+    if (!matchId) {
+      return false;
+    }
+
+    const matches = this._currentNoteSearchMatches || [];
+    let match = matches.find((m) => m.id === matchId);
+    if (!match && this._lastSearchTerm) {
+      this.searchCurrentNote(this._lastSearchTerm);
+      match = (this._currentNoteSearchMatches || []).find((m) => m.id === matchId);
+    }
+
+    if (!match) {
+      this.showToast('Search result is no longer available. Please search again.', 'info');
+      return false;
+    }
+
+    try {
+      if (!match.node?.isConnected) {
+        throw new Error('Detached node');
+      }
+
+      const range = document.createRange();
+      const text = match.node.textContent || '';
+      const start = Math.min(match.startOffset, text.length);
+      let end = Math.min(match.endOffset, text.length);
+      if (end <= start) {
+        end = Math.min(start + 1, text.length);
+      }
+      range.setStart(match.node, start);
+      range.setEnd(match.node, end);
+
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      const target = match.node.parentElement || this.editor;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    } catch (error) {
+      console.error('Failed to focus search result:', error);
+      this.showToast('Unable to focus search match. Please search again.', 'error');
+      return false;
+    }
+  },
+
+  async openRemoteSearchNote(noteId, term) {
+    if (!noteId) {
+      return false;
+    }
+    try {
+      await this.loadNote(noteId);
+      const query = term || this._lastSearchTerm;
+      if (!query) {
+        return true;
+      }
+      setTimeout(() => {
+        const focused = this.focusFirstMatchInCurrentNote(query);
+        if (!focused) {
+          this.showToast('Opened note but could not locate the search term.', 'info');
+        }
+      }, 60);
+      return true;
+    } catch (error) {
+      console.error('Failed to open note from search:', error);
+      this.showToast('Unable to open note from search.', 'error');
+      return false;
+    }
+  },
+
+  focusFirstMatchInCurrentNote(term) {
+    if (!term) {
+      return false;
+    }
+    const matches = this.searchCurrentNote(term);
+    if (!matches.length) {
+      return false;
+    }
+    const first = this._currentNoteSearchMatches?.[0];
+    if (first) {
+      return Boolean(this.focusLocalSearchMatch(first.id));
+    }
+    return false;
+  },
+
+  async openFolderFromSearch(folderId) {
+    if (!folderId) {
+      return false;
+    }
+
+    const findFolderElement = () => Array.from(document.querySelectorAll('[data-folder-id]'))
+      .find((el) => el.dataset.folderId === folderId);
+
+    let target = findFolderElement();
+    if (target) {
+      this.highlightFolderElement(target);
+      return true;
+    }
+
+    try {
+      await this.loadFolders();
+      target = findFolderElement();
+      if (target) {
+        this.highlightFolderElement(target);
+      } else {
+        this.showToast('Folder not found. Please refresh your folders list.', 'info');
+      }
+      return true;
+    } catch (error) {
+      console.error('Failed to navigate to folder from search:', error);
+      this.showToast('Unable to open folder from search.', 'error');
+      return false;
+    }
+  },
+
+  highlightFolderElement(element) {
+    if (!element) {
+      return;
+    }
+    element.classList.add('search-hit-folder');
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => {
+      element.classList.remove('search-hit-folder');
+    }, 1600);
+  },
+
+  createSearchSnippet(text, startIndex, termLength, context = 50) {
+    if (!text) {
+      return '';
+    }
+    const start = Math.max(0, startIndex - context);
+    const end = Math.min(text.length, startIndex + termLength + context);
+    let snippet = text.slice(start, end).replace(/\s+/g, ' ').trim();
+    if (start > 0) {
+      snippet = `...${snippet}`;
+    }
+    if (end < text.length) {
+      snippet = `${snippet}...`;
+    }
+    return this.escapeHTML(snippet);
+  },
+
+  escapeHTML(value = '') {
+    const stringValue = `${value ?? ''}`;
+    return stringValue.replace(/[&<>"']/g, (char) => ESCAPE_HTML_MAP[char] || char);
+  },
+
+  stripHTMLTags(value = '') {
+    const text = `${value ?? ''}`;
+    if (!text) {
+      return '';
+    }
+    return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   },
 
   toggleSidebar() {

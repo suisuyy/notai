@@ -24,23 +24,25 @@ const mixin = {
         ? AI_PROXY_URL
         : `${API_BASE_URL}${endpoint}`;
 
-      //get else from config and combine it to body
-      let elseconfig = {}
-      try {
+      let requestBody = body && typeof body === 'object' ? { ...body } : null;
 
-        elseconfig = JSON.parse(this.aiSettings.models.find(m => m.model_id === body?.model)?.else || '{}');
-        console.log('else config', elseconfig);
-      } catch (error) {
-        console.log('error when parse else config', error)
+      if (isAIRequest && requestBody?.model) {
+        try {
+          const rawElseConfig = this.aiSettings.models.find(m => m.model_id === requestBody.model)?.else || '{}';
+          const elseconfig = JSON.parse(rawElseConfig);
+          requestBody = { ...requestBody, ...elseconfig };
+        } catch (error) {
+          console.log('error when parse else config', error);
+        }
       }
-      body = { ...body, ...elseconfig };
+
       const response = await fetch(
-        isAIRequest && body?.model
-          ? (this.aiSettings.models.find(m => m.model_id === body.model)?.url || AI_PROXY_URL)
+        isAIRequest && requestBody?.model
+          ? (this.aiSettings.models.find(m => m.model_id === requestBody.model)?.url || AI_PROXY_URL)
           : url, {
         method,
         headers,
-        body: method === 'GET' ? null : body ? JSON.stringify(body) : null,
+        body: method === 'GET' ? null : requestBody ? JSON.stringify(requestBody) : null,
       });
 
       // Hide the spinner after the request completes
