@@ -293,12 +293,47 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
   setupSelectionHandler() {
     // Remove any existing listener
     document.removeEventListener("selectionchange", this.selectionChangeHandler);
+    document.removeEventListener("pointerdown", this.pointerDownHideHandler);
+    if (this.aiToolbarShowTimeout) {
+      clearTimeout(this.aiToolbarShowTimeout);
+      this.aiToolbarShowTimeout = null;
+    }
+
+    const hideToolbar = () => {
+      if (this.aiToolbarShowTimeout) {
+        clearTimeout(this.aiToolbarShowTimeout);
+        this.aiToolbarShowTimeout = null;
+      }
+      if (!this.aiToolbar) return;
+      this.aiToolbar.style.display = 'none';
+      this.aiToolbar.classList.remove("visible");
+    };
 
     // Create the handler
     this.selectionChangeHandler = () => {
+      if (this.aiToolbarShowTimeout) {
+        clearTimeout(this.aiToolbarShowTimeout);
+        this.aiToolbarShowTimeout = null;
+      }
+
       const selection = window.getSelection();
-      if (!selection.isCollapsed && selection.toString().trim()) {
-        const range = selection.getRangeAt(0);
+      if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+        hideToolbar();
+        return;
+      }
+
+      this.aiToolbarShowTimeout = setTimeout(() => {
+        const activeSelection = window.getSelection();
+        if (!activeSelection || activeSelection.isCollapsed || !activeSelection.toString().trim()) {
+          hideToolbar();
+          return;
+        }
+        if (!activeSelection.rangeCount || !this.aiToolbar) {
+          hideToolbar();
+          return;
+        }
+
+        const range = activeSelection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
 
         // Get toolbar dimensions
@@ -326,15 +361,18 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         this.aiToolbar.style.display = 'block';
         this.aiToolbar.style.top = `${topPosition}px`;
         this.aiToolbar.style.left = `${leftPosition}px`;
-      } else {
-        // Hide toolbar completely when no selection
-        this.aiToolbar.style.display = 'none';
-        this.aiToolbar.classList.remove("visible");
-      }
+      }, 2000);
     };
 
     // Add the listener
     document.addEventListener("selectionchange", this.selectionChangeHandler);
+    this.pointerDownHideHandler = (event) => {
+      if (!this.aiToolbar || this.aiToolbar.contains(event.target)) {
+        return;
+      }
+      hideToolbar();
+    };
+    document.addEventListener("pointerdown", this.pointerDownHideHandler);
   },
 
   async setupEventListeners() {
