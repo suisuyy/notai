@@ -635,7 +635,7 @@ iframe {
     border: none;
     outline: none;
     background: transparent;
-    font-size: 0.9rem;
+    font-size: large;
     padding: 6px 0;
 }
 
@@ -1894,7 +1894,9 @@ pre code {
     cursor: pointer;
 }
 
-.btn-primary:hover { background-color: #0069d9; }
+.btn-primary:hover {
+    background-color: #0069d9;
+}
 
 .btn-secondary {
     padding: 8px 14px;
@@ -1905,7 +1907,9 @@ pre code {
     cursor: pointer;
 }
 
-.btn-secondary:hover { background-color: #e9ecef; }
+.btn-secondary:hover {
+    background-color: #e9ecef;
+}
 
 
 
