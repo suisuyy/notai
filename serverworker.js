@@ -796,9 +796,14 @@ async function handleRequest(request, env) {
                 const notes = (noteRows.results || []).map((row) => {
                     const title = row.title || "Untitled";
                     const content = row.content || "";
-                    const contentMatch = content.toLowerCase().includes(lowerTerm);
+                    const contentText = stripHTML(content);
+                    const titleMatch = title.toLowerCase().includes(lowerTerm);
+                    const contentMatch = contentText.toLowerCase().includes(lowerTerm);
+                    if (!titleMatch && !contentMatch) {
+                        return null;
+                    }
                     const match_field = contentMatch ? "content" : "title";
-                    const snippetSource = contentMatch ? content : title;
+                    const snippetSource = contentMatch ? contentText : title;
                     return {
                         type: "note",
                         note_id: row.note_id,
@@ -809,7 +814,7 @@ async function handleRequest(request, env) {
                         match_field,
                         snippet: buildSnippet(snippetSource, term)
                     };
-                });
+                }).filter(Boolean);
 
                 const folders = (folderRows.results || []).map((row) => ({
                     type: "folder",
@@ -956,9 +961,24 @@ function buildSnippet(text = "", term = "", context = 80) {
 
 function stripHTML(input = "") {
     if (!input) return "";
-    return input
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
+    const withoutBlocks = input
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ");
+
+    const withoutTags = withoutBlocks.replace(/<[^>]*>/g, " ");
+
+    return decodeHTMLEntities(withoutTags)
         .replace(/\s+/g, " ")
         .trim();
+}
+
+function decodeHTMLEntities(input = "") {
+    if (!input) return "";
+    return input
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&quot;/gi, "\"")
+        .replace(/&#39;/gi, "'");
 }

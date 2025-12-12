@@ -1711,6 +1711,10 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
     while (walker.nextNode()) {
       const node = walker.currentNode;
+      const parent = node.parentElement;
+      if (parent && parent.closest && parent.closest('script,style,noscript')) {
+        continue;
+      }
       const text = node.textContent || '';
       if (!text.trim()) {
         continue;
@@ -2073,7 +2077,15 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     if (!text) {
       return '';
     }
-    return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return text
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]*>?/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   },
 
   toggleSidebar() {
