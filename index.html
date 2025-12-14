@@ -29,33 +29,42 @@
 <body>
     <div class="editor-container">
 
-	        <div class="sidebar hidden" >
-	            <div class="sidebar-header">
-	                <div class="auth-buttons">
-	                    <button id="logoutBtn" style="display: none;" onclick="window.editor.logout()"><i
-	                            class="fas fa-sign-out-alt"></i> Logout</button>
-	                </div>
-	                <div class="sidebar-actions">
-	                    <div class="folder-input-container" style="display: none;">
-	                        <input type="text" id="newFolderInput" placeholder="Folder name">
-	                        <button id="createFolderBtn"><i class="fas fa-check"></i></button>
-	                        <button id="cancelFolderBtn"><i class="fas fa-times"></i></button>
-	                    </div>
-	                    <button id="newFolderBtn">+</button>
-	                </div>
-	            </div>
-	            <div class="sidebar-section">
-	                <button id="toggleTocBtn" class="sidebar-btn">
-	                    <i class="fas fa-list"></i> Table of Contents
-	                </button>
-	                <div id="tocList" style="display: none;"></div>
-	            </div>
-	            <div id="folders"></div>
-	            <div id="pagesList"></div>
+		        <div class="sidebar hidden" >
+		            <div class="sidebar-header">
+		                <div class="auth-buttons">
+		                    <button id="logoutBtn" style="display: none;" onclick="window.editor.logout()"><i
+		                            class="fas fa-sign-out-alt"></i> Logout</button>
+		                </div>
+		            </div>
 
-	            <div style="height: 200px;"></div>
+		            <div class="sidebar-section toc-section">
+		                <button id="toggleTocBtn" class="sidebar-btn">
+		                    <i class="fas fa-list"></i> Table of Contents
+		                </button>
+		                <div id="tocList" style="display: none;"></div>
+		            </div>
 
-	        </div>
+		            <div class="sidebar-section folders-section">
+		                <div class="sidebar-section-header-row">
+		                    <div class="sidebar-section-title">
+		                        <i class="fas fa-folder"></i> Folders
+		                    </div>
+		                    <button id="newFolderBtn" class="sidebar-action-btn" title="New folder">
+		                        <i class="fas fa-plus"></i>
+		                    </button>
+		                </div>
+		                <div class="folder-input-container" style="display: none;">
+		                    <input type="text" id="newFolderInput" placeholder="Folder name">
+		                    <button id="createFolderBtn" title="Create folder"><i class="fas fa-check"></i></button>
+		                    <button id="cancelFolderBtn" title="Cancel"><i class="fas fa-times"></i></button>
+		                </div>
+		                <div id="folders"></div>
+		                <div id="pagesList"></div>
+		            </div>
+
+		            <div style="height: 200px;"></div>
+
+		        </div>
         <div class="main-content">
             <div class="toolbar">
                 <div class="formatting-tools">

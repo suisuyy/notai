@@ -300,7 +300,7 @@ iframe {
     max-width: 500px;
     background-color: #f7f7f7;
     border-right: 1px solid #e0e0e0;
-    padding-left: 10px;
+    padding: 10px 0 0 10px;
     position: fixed;
     height: 50vh;
     overflow-y: auto;
@@ -325,9 +325,12 @@ iframe {
 }
 
 .sidebar-header {
-    height: 40px;
     width: 100%;
-    background-color: #f5f5f5;
+    background-color: transparent;
+    display: flex;
+    align-items: center;
+    padding: 0;
+    border-bottom: 0;
 }
 
 .sidebar-actions {
@@ -338,21 +341,23 @@ iframe {
 }
 
 .folder-input-container {
-    z-index: 100;
-    position: fixed;
-    top: 50px;
-    left: 50px;
-    background: #f7f7f7;
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    box-sizing: border-box;
+    background: #ffffff;
     border: 1px solid #e0e0e0;
     border-radius: 4px;
-    padding: 10px;
+    padding: 8px;
     display: flex;
     align-items: center;
-    margin-bottom: 5px;
+    gap: 8px;
+    margin: 6px 0 10px;
 }
 
 .folder-input-container input {
     flex: 1;
+    min-width: 0;
     padding: 4px 8px;
     border: 1px solid #e0e0e0;
     border-radius: 4px;
@@ -502,20 +507,74 @@ iframe {
 }
 
 .sidebar-section {
-    margin-top: 5px;
-    border-top: 1px solid #e0e0e0;
-    padding-top: 20px;
-    overflow: auto;
+    margin: 10px 10px 0 0;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #ffffff;
     font-size: small;
     scrollbar-width: none;
 }
 
-.sidebar-btn {
+.sidebar-section.toc-section {
+    margin-top: 0;
+    background: #f8fafc;
+    border-left: 4px solid #93c5fd;
+}
 
-    font-size: xx-small;
+.sidebar-section.folders-section {
+    background: #ffffff;
+    border-left: 4px solid #86efac;
+}
+
+.sidebar-section-header-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.sidebar-section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.sidebar-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin-left: auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background: #ffffff;
+    cursor: pointer;
+    color: #0f172a;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-action-btn:hover {
+    background-color: #f0f0f0;
+    border-color: #d0d0d0;
+}
+
+.sidebar-btn {
+    font-size: 12px;
+    font-weight: 600;
     width: 100%;
     padding: 8px;
-    background: none;
+    background: #ffffff;
     border: 1px solid #e0e0e0;
     border-radius: 4px;
     cursor: pointer;
@@ -531,6 +590,8 @@ iframe {
 
 #tocList {
     padding-left: 0px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    padding-top: 8px;
 }
 
 .toc-item {
@@ -2093,11 +2154,8 @@ pre code {
 }
 
 #newFolderBtn {
-    font-size: large;
-    padding: 5px 10px;
-    background: none;
-    border: 0px;
-    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
 }
 
 #midiaURLContainer {
