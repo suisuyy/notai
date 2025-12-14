@@ -221,6 +221,14 @@ iframe {
     overflow-wrap: anywhere;
 }
 
+.block[data-controls-pad="top"] {
+    padding-top: 52px;
+}
+
+.block[data-controls-pad="bottom"] {
+    padding-bottom: 52px;
+}
+
 .block-controls {
     position: fixed;
     display: flex;
@@ -569,6 +577,7 @@ iframe {
     gap: 5px;
     align-items: center;
     margin-left: 0;
+    min-width: 30px;
     /* Add margin to prevent overlap with toggle button */
 }
 
@@ -580,29 +589,29 @@ iframe {
 
 .search-wrapper {
     position: relative;
-    margin-left: 12px;
+    margin-left: 0;
 }
 
-.search-toggle-btn {
-    border: none;
+/* Match toolbar button styling */
+.formatting-tools .search-toggle-btn {
+    padding: 5px 10px;
     background: none;
-    border-radius: 6px;
-    width: 32px;
-    height: 32px;
-    display: flex;
+    border: 0px solid #e0e0e0;
+    border-radius: 4px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     color: #222;
+    transition: background-color 0.2s;
 }
 
-.search-toggle-btn:hover {
-    background: none;
-    color: #222;
+.formatting-tools .search-toggle-btn:hover {
+    background-color: #f0f0f0;
 }
 
 .search-wrapper.active .search-toggle-btn {
-    background: #f0f0f0;
+    background-color: #f0f0f0;
 }
 
 .search-container {
@@ -865,13 +874,13 @@ iframe {
 }
 
 .formatting-tools button {
-    padding-right: 15px;
     font-size: medium;
     background: none;
     border: 0 solid #e0e0e0;
     border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.2s;
+    min-width: 35px;
 }
 
 .formatting-tools button:hover {

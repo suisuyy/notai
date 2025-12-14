@@ -237,8 +237,19 @@ const mixin = {
       return;
     }
 
+    if (this.blockControlsTarget && this._boundBlockControlsUpdater) {
+      if (this.blockControlsTarget?.dataset?.controlsPad) {
+        delete this.blockControlsTarget.dataset.controlsPad;
+      }
+      this.blockControlsTarget.removeEventListener('scroll', this._boundBlockControlsUpdater);
+    }
+
     this.blockControlsTarget = block;
     this.blockControls.style.display = 'flex';
+
+    if (this._boundBlockControlsUpdater) {
+      block.addEventListener('scroll', this._boundBlockControlsUpdater, { passive: true });
+    }
 
     requestAnimationFrame(() => this.updateBlockControlsPosition(block));
   },
@@ -246,6 +257,14 @@ const mixin = {
   hideBlockControls() {
     if (!this.blockControls) {
       return;
+    }
+
+    if (this.blockControlsTarget?.dataset?.controlsPad) {
+      delete this.blockControlsTarget.dataset.controlsPad;
+    }
+
+    if (this.blockControlsTarget && this._boundBlockControlsUpdater) {
+      this.blockControlsTarget.removeEventListener('scroll', this._boundBlockControlsUpdater);
     }
 
     this.blockControlsTarget = null;
@@ -282,15 +301,97 @@ const mixin = {
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
 
-    const anchorBottom = blockRect.top < editorRect.top;
-    let top = anchorBottom
-      ? blockRect.bottom - controlsRect.height - offset
-      : blockRect.top + offset;
+    const controlsHeight = controlsRect.height || 38;
+    const controlsWidth = controlsRect.width || 140;
 
-    let left = blockRect.right - controlsRect.width - offset;
+    const minTop = Math.max(offset, editorRect.top + offset);
+    const maxTop = Math.min(
+      viewportHeight - controlsHeight - offset,
+      editorRect.bottom - controlsHeight - offset
+    );
+
+    const outsideAbove = blockRect.top - controlsHeight - offset;
+    const outsideBelow = blockRect.bottom + offset;
+    const insideTop = blockRect.top + offset;
+    const insideBottom = blockRect.bottom - controlsHeight - offset;
+
+    const canPlaceOutsideAbove = outsideAbove >= minTop && outsideAbove <= maxTop;
+    const canPlaceOutsideBelow = outsideBelow >= minTop && outsideBelow <= maxTop;
+
+    let preferredPlacement = 'top';
+    const isScrollable = block.scrollHeight > block.clientHeight + 2;
+    if (isScrollable) {
+      const maxScrollTop = Math.max(0, block.scrollHeight - block.clientHeight);
+      const atTop = block.scrollTop <= 2;
+      const atBottom = (maxScrollTop - block.scrollTop) <= 2;
+      if (atBottom) {
+        preferredPlacement = 'bottom';
+      } else if (!atTop && maxScrollTop > 0) {
+        preferredPlacement = block.scrollTop > maxScrollTop / 2 ? 'bottom' : 'top';
+      }
+    } else {
+      const spaceAbove = blockRect.top - minTop;
+      const spaceBelow = maxTop - blockRect.bottom;
+      preferredPlacement = spaceAbove >= spaceBelow ? 'top' : 'bottom';
+    }
+
+    const blockClippedTop = blockRect.top < editorRect.top;
+    const blockClippedBottom = blockRect.bottom > editorRect.bottom;
+    if (blockClippedTop && !blockClippedBottom) {
+      preferredPlacement = 'bottom';
+    } else if (blockClippedBottom && !blockClippedTop) {
+      preferredPlacement = 'top';
+    }
+
+    let top = insideTop;
+    let placement = 'top';
+    let desiredPad = '';
+
+    const pickAbove = () => {
+      placement = 'top';
+      if (canPlaceOutsideAbove) {
+        top = outsideAbove;
+        desiredPad = '';
+      } else {
+        top = insideTop;
+        desiredPad = 'top';
+      }
+    };
+
+    const pickBelow = () => {
+      placement = 'bottom';
+      if (canPlaceOutsideBelow) {
+        top = outsideBelow;
+        desiredPad = '';
+      } else {
+        top = insideBottom;
+        desiredPad = 'bottom';
+      }
+    };
+
+    if (preferredPlacement === 'top') {
+      pickAbove();
+    } else {
+      pickBelow();
+    }
+
+    const currentPad = block.dataset.controlsPad || '';
+    if (currentPad !== desiredPad) {
+      if (desiredPad) {
+        block.dataset.controlsPad = desiredPad;
+      } else {
+        delete block.dataset.controlsPad;
+      }
+      requestAnimationFrame(() => this.updateBlockControlsPosition(block));
+      return;
+    }
+
+    top = Math.max(minTop, Math.min(top, maxTop));
+
+    let left = blockRect.right - controlsWidth - offset;
 
     const editorLeftLimit = editorRect.left + offset;
-    const editorRightLimit = editorRect.right - controlsRect.width - offset;
+    const editorRightLimit = editorRect.right - controlsWidth - offset;
 
     if (editorRightLimit >= editorLeftLimit) {
       left = Math.max(editorLeftLimit, Math.min(left, editorRightLimit));
@@ -298,21 +399,10 @@ const mixin = {
       left = editorRect.left + offset;
     }
 
-    const maxLeft = viewportWidth - controlsRect.width - offset;
+    const maxLeft = viewportWidth - controlsWidth - offset;
     left = Math.max(offset, Math.min(left, maxLeft));
 
-    const maxTop = viewportHeight - controlsRect.height - offset;
-
-    if (anchorBottom) {
-      const bottomLimit = Math.min(editorRect.bottom, viewportHeight) - controlsRect.height - offset;
-      top = Math.min(bottomLimit, top);
-      this.blockControls.dataset.position = 'bottom';
-    } else {
-      this.blockControls.dataset.position = 'top';
-    }
-
-    const minTop = Math.max(offset, editorRect.top + offset);
-    top = Math.max(minTop, Math.min(top, maxTop));
+    this.blockControls.dataset.position = placement;
 
     this.blockControls.style.top = `${top}px`;
     this.blockControls.style.left = `${left}px`;
