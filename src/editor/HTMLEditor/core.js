@@ -1732,7 +1732,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         } else if (type === 'note') {
           await this.openRemoteSearchNote(item.dataset.noteId, item.dataset.term);
         } else if (type === 'folder') {
-          await this.openFolderFromSearch(item.dataset.folderId);
+          await this.openFolderFromSearch(item.dataset.folderId, item.dataset.folderName);
         } else {
           return;
         }
@@ -1919,6 +1919,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       item.className = 'search-result-item';
       item.dataset.resultType = 'folder';
       item.dataset.folderId = folder.folder_id;
+      item.dataset.folderName = folder.folder_name || '';
       item.innerHTML = `
         <div class="search-result-title">
           <span class="search-result-label">Folder</span>
@@ -2100,28 +2101,44 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     return false;
   },
 
-  async openFolderFromSearch(folderId) {
+  async openFolderFromSearch(folderId, folderName = '') {
     if (!folderId) {
       return false;
     }
 
+    this.ensureSidebarVisible();
+    const normalizedFolderId = String(folderId);
+
     const findFolderElement = () => Array.from(document.querySelectorAll('[data-folder-id]'))
-      .find((el) => el.dataset.folderId === folderId);
+      .find((el) => String(el.dataset.folderId) === normalizedFolderId);
 
     let target = findFolderElement();
-    if (target) {
-      this.highlightFolderElement(target);
-      return true;
-    }
-
     try {
-      await this.loadFolders();
-      target = findFolderElement();
-      if (target) {
-        this.highlightFolderElement(target);
-      } else {
-        this.showToast('Folder not found. Please refresh your folders list.', 'info');
+      if (!target) {
+        await this.loadFolders();
+        target = findFolderElement();
       }
+      if (!target) {
+        this.showToast('Folder not found. Please refresh your folders list.', 'info');
+        return false;
+      }
+
+      const hasOpenContents =
+        target.classList.contains('open') &&
+        target.nextElementSibling?.classList?.contains('folder-contents');
+      if (!hasOpenContents) {
+        await this.loadFolderContents(normalizedFolderId, target);
+      }
+
+      const targetName =
+        folderName ||
+        target.querySelector('.folder-content span')?.textContent?.trim() ||
+        'Folder';
+      if (typeof this.showFolderUIAtBottom === 'function') {
+        await this.showFolderUIAtBottom(normalizedFolderId, targetName);
+      }
+
+      this.highlightFolderElement(target);
       return true;
     } catch (error) {
       console.error('Failed to navigate to folder from search:', error);
@@ -2185,6 +2202,13 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
     if (sidebar && mainContent) {
       sidebar.classList.toggle("hidden");
+    }
+  },
+
+  ensureSidebarVisible() {
+    const sidebar = document.querySelector(".sidebar");
+    if (sidebar?.classList.contains("hidden")) {
+      sidebar.classList.remove("hidden");
     }
   },
 

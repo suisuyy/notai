@@ -55,14 +55,17 @@ const mixin = {
       folders.forEach((folder) => {
         folder.children = [];
         folderMap.set(folder.folder_id, folder);
+      });
+
+      folders.forEach((folder) => {
         if (folder.parent_folder_id) {
           const parent = folderMap.get(folder.parent_folder_id);
           if (parent) {
             parent.children.push(folder);
+            return;
           }
-        } else {
-          rootFolders.push(folder);
         }
+        rootFolders.push(folder);
       });
 
       // Recursive function to render folder hierarchy
@@ -189,6 +192,47 @@ const mixin = {
     }
   },
 
+  async showFolderUIAtBottom(folderId, folderName = 'Folder') {
+    const pagesList = document.getElementById("pagesList");
+    if (!pagesList || !folderId) {
+      return false;
+    }
+
+    pagesList.innerHTML = '<div class="search-status loading">Loading folder contents...</div>';
+
+    try {
+      const [notes, folders] = await Promise.all([
+        this.apiRequest("GET", `/folders/${folderId}/notes`),
+        this.apiRequest("GET", `/folders/${folderId}/contents`)
+      ]);
+
+      pagesList.innerHTML = "";
+
+      const header = document.createElement("div");
+      header.className = "search-section-title";
+      header.textContent = `Folder: ${folderName}`;
+      pagesList.appendChild(header);
+
+      const noteList = Array.isArray(notes) ? notes : [];
+      const folderList = Array.isArray(folders) ? folders : [];
+
+      if (!noteList.length && !folderList.length) {
+        const emptyState = document.createElement("div");
+        emptyState.className = "search-empty";
+        emptyState.textContent = "This folder is empty.";
+        pagesList.appendChild(emptyState);
+        return true;
+      }
+
+      this.renderFolderContents(noteList, folderList, pagesList);
+      return true;
+    } catch (error) {
+      console.error('Error loading folder UI at bottom:', error);
+      pagesList.innerHTML = '<div class="search-status">Unable to load folder contents.</div>';
+      return false;
+    }
+  },
+
   renderFolderContents(notes, folders, container) {
     // Render notes
     if (Array.isArray(notes)) {
@@ -209,6 +253,7 @@ const mixin = {
       folders.forEach((folder) => {
         const subFolderElement = document.createElement("div");
         subFolderElement.className = "folder-item sub-folder";
+        subFolderElement.setAttribute("data-folder-id", folder.folder_id);
         const isDefaultFolder = folder.folder_id === DEFAULT_FOLDER_ID;
         subFolderElement.innerHTML = `
           <div class="folder-content">
