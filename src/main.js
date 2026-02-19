@@ -140,11 +140,284 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const midiaURLContainer = document.getElementById("midiaURLContainer");
-  const imgDisplay = document.getElementById("imgDisplay");
+  const imageZoomBtn = document.getElementById("imageZoomBtn");
+  const imageViewerOverlay = document.getElementById("imageViewerOverlay");
+  const closeImageViewerBtn = document.getElementById("closeImageViewerBtn");
+  const imageViewerImage = document.getElementById("imageViewerImage");
+  const imageZoomOutBtn = document.getElementById("imageZoomOutBtn");
+  const imageZoomInBtn = document.getElementById("imageZoomInBtn");
+  const imageViewerInfo = document.getElementById("imageViewerInfo");
+
+  const imageMetadataCache = new Map();
+  let selectedImageElement = null;
+  let imageViewerScale = 1;
+  let viewerInfoRequestId = 0;
+
+  const formatFileSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "-";
+    }
+    const units = ["B", "KB", "MB", "GB"];
+    let value = bytes;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024;
+      index += 1;
+    }
+    return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+  };
+
+  const inferTypeFromSrc = (src) => {
+    if (!src) return "-";
+    if (src.startsWith("data:")) {
+      const mimeType = src.slice(5).split(";")[0].trim();
+      return mimeType || "-";
+    }
+    try {
+      const parsed = new URL(src, window.location.href);
+      const extension = parsed.pathname.split(".").pop()?.toLowerCase() || "";
+      const extensionToMime = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp",
+        svg: "image/svg+xml",
+        bmp: "image/bmp",
+        avif: "image/avif",
+      };
+      return extensionToMime[extension] || "-";
+    } catch {
+      return "-";
+    }
+  };
+
+  const getDataUrlSize = (src) => {
+    const commaIndex = src.indexOf(",");
+    if (commaIndex === -1) return null;
+    const payload = src.slice(commaIndex + 1);
+    const isBase64 = src.slice(0, commaIndex).includes(";base64");
+    if (!isBase64) {
+      try {
+        return new TextEncoder().encode(decodeURIComponent(payload)).length;
+      } catch {
+        return new TextEncoder().encode(payload).length;
+      }
+    }
+    const padding = (payload.match(/=*$/)?.[0].length ?? 0);
+    return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+  };
+
+  const getImageFileMetadata = async (imageElement) => {
+    const src = imageElement.currentSrc || imageElement.getAttribute("src") || "";
+    const resolution = `${imageElement.naturalWidth || "-"} x ${imageElement.naturalHeight || "-"}`;
+    if (!src) {
+      return { resolution, sizeText: "-", typeText: "-" };
+    }
+
+    const cached = imageMetadataCache.get(src);
+    if (cached) {
+      return {
+        resolution,
+        sizeText: cached.sizeText,
+        typeText: cached.typeText,
+      };
+    }
+
+    let sizeBytes = null;
+    let typeText = inferTypeFromSrc(src);
+
+    if (src.startsWith("data:")) {
+      sizeBytes = getDataUrlSize(src);
+    }
+
+    if (sizeBytes == null) {
+      const perfEntries = performance.getEntriesByName(src);
+      const perfEntry = perfEntries[perfEntries.length - 1];
+      if (perfEntry && typeof perfEntry.decodedBodySize === "number" && perfEntry.decodedBodySize > 0) {
+        sizeBytes = perfEntry.decodedBodySize;
+      }
+    }
+
+    let isFetchableSrc = src.startsWith("blob:");
+    if (!isFetchableSrc) {
+      try {
+        const parsedUrl = new URL(src, window.location.href);
+        isFetchableSrc = parsedUrl.origin === window.location.origin;
+      } catch {
+        isFetchableSrc = false;
+      }
+    }
+
+    if ((sizeBytes == null || typeText === "-") && isFetchableSrc) {
+      try {
+        const response = await fetch(src);
+        if (response.ok) {
+          const blob = await response.blob();
+          if (sizeBytes == null && Number.isFinite(blob.size)) {
+            sizeBytes = blob.size;
+          }
+          if (typeText === "-" && blob.type) {
+            typeText = blob.type;
+          }
+        }
+      } catch {
+        // Best effort only; keep fallback metadata if fetching is blocked.
+      }
+    }
+
+    const resolved = {
+      sizeText: formatFileSize(sizeBytes),
+      typeText: typeText || "-",
+    };
+    imageMetadataCache.set(src, resolved);
+    return {
+      resolution,
+      ...resolved,
+    };
+  };
+
+  const positionImageZoomButton = () => {
+    if (
+      !imageZoomBtn ||
+      imageZoomBtn.classList.contains("hidden") ||
+      !(selectedImageElement instanceof HTMLImageElement) ||
+      !selectedImageElement.isConnected
+    ) {
+      return;
+    }
+    const rect = selectedImageElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      imageZoomBtn.classList.add("hidden");
+      return;
+    }
+    const buttonSize = 34;
+    const margin = 8;
+    const top = Math.max(margin, rect.top + margin);
+    const left = Math.min(
+      window.innerWidth - buttonSize - margin,
+      Math.max(margin, rect.right - buttonSize - margin),
+    );
+    imageZoomBtn.style.top = `${top}px`;
+    imageZoomBtn.style.left = `${left}px`;
+  };
+
+  const showImageZoomButton = (imageElement) => {
+    if (!(imageElement instanceof HTMLImageElement) || !imageZoomBtn) {
+      return;
+    }
+    selectedImageElement = imageElement;
+    imageZoomBtn.classList.remove("hidden");
+    positionImageZoomButton();
+  };
+
+  const hideImageZoomButton = () => {
+    imageZoomBtn?.classList.add("hidden");
+    selectedImageElement = null;
+  };
+
+  const applyImageViewerScale = () => {
+    if (!imageViewerImage) return;
+    imageViewerScale = Math.min(5, Math.max(0.25, imageViewerScale));
+    imageViewerImage.style.transform = `scale(${imageViewerScale})`;
+  };
+
+  const setImageViewerInfo = async (imageElement) => {
+    if (!imageViewerInfo) return;
+    viewerInfoRequestId += 1;
+    const requestId = viewerInfoRequestId;
+    imageViewerInfo.textContent = "Resolution: - | Size: - | Type: -";
+    const metadata = await getImageFileMetadata(imageElement);
+    if (requestId !== viewerInfoRequestId) return;
+    imageViewerInfo.textContent = `Resolution: ${metadata.resolution} | Size: ${metadata.sizeText} | Type: ${metadata.typeText}`;
+  };
+
+  const openImageViewer = (imageElement) => {
+    if (
+      !(imageElement instanceof HTMLImageElement) ||
+      !imageViewerOverlay ||
+      !imageViewerImage
+    ) {
+      return;
+    }
+    const src = imageElement.currentSrc || imageElement.getAttribute("src") || "";
+    if (!src) return;
+
+    imageViewerScale = 1;
+    imageViewerImage.src = src;
+    applyImageViewerScale();
+    imageViewerOverlay.classList.remove("hidden");
+    midiaURLContainer?.classList.add("hidden");
+    imageZoomBtn?.classList.add("hidden");
+    setImageViewerInfo(imageElement);
+  };
+
+  const closeImageViewer = () => {
+    imageViewerOverlay?.classList.add("hidden");
+    if (imageViewerImage) {
+      imageViewerImage.src = "";
+      imageViewerImage.style.transform = "";
+    }
+  };
+
+  imageZoomBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (selectedImageElement) {
+      openImageViewer(selectedImageElement);
+    }
+  });
+
+  closeImageViewerBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeImageViewer();
+  });
+
+  imageZoomInBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    imageViewerScale += 0.2;
+    applyImageViewerScale();
+  });
+
+  imageZoomOutBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    imageViewerScale -= 0.2;
+    applyImageViewerScale();
+  });
+
+  imageViewerOverlay?.addEventListener("click", (event) => {
+    if (event.target === imageViewerOverlay) {
+      closeImageViewer();
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && imageViewerOverlay && !imageViewerOverlay.classList.contains("hidden")) {
+      closeImageViewer();
+    }
+  });
+
+  window.addEventListener("scroll", positionImageZoomButton, true);
+  window.addEventListener("resize", positionImageZoomButton);
 
   document.body.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    if (imageViewerOverlay?.contains(target)) {
+      return;
+    }
+
+    if (target.closest("#imageZoomBtn")) {
+      event.preventDefault();
+      if (selectedImageElement) {
+        openImageViewer(selectedImageElement);
+      }
       return;
     }
 
@@ -166,9 +439,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         midiaURLContainer.classList.remove("hidden");
       }
 
-      if (target.tagName === "IMG" && imgDisplay) {
-        imgDisplay.src = target.getAttribute("src") ?? "";
-        imgDisplay.classList.remove("hidden");
+      if (target.tagName === "IMG") {
+        showImageZoomButton(target);
+      } else {
+        hideImageZoomButton();
       }
       return;
     }
@@ -188,7 +462,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     midiaURLContainer?.classList.add("hidden");
-    imgDisplay?.classList.add("hidden");
+    hideImageZoomButton();
   });
 
   let setEditableTimeoutID = 0;

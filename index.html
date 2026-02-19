@@ -346,7 +346,22 @@
     </button>
 
     <div id="midiaURLContainer" class="hidden"> </div>
-    <img id="imgDisplay" src="" alt="Image Preview" class="hidden">
+    <button id="imageZoomBtn" class="hidden" type="button" aria-label="Open image viewer">
+        <i class="fas fa-search-plus" aria-hidden="true"></i>
+    </button>
+    <div id="imageViewerOverlay" class="hidden" role="dialog" aria-modal="true" aria-label="Image viewer">
+        <button id="closeImageViewerBtn" type="button" aria-label="Close image viewer">&times;</button>
+        <div class="image-viewer-stage">
+            <img id="imageViewerImage" src="" alt="Expanded preview">
+        </div>
+        <div class="image-viewer-footer">
+            <div class="image-viewer-zoom-controls">
+                <button id="imageZoomOutBtn" type="button" aria-label="Zoom out">-</button>
+                <button id="imageZoomInBtn" type="button" aria-label="Zoom in">+</button>
+            </div>
+            <div id="imageViewerInfo" class="image-viewer-info">Resolution: - | Size: - | Type: -</div>
+        </div>
+    </div>
     <div id="uploadModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
