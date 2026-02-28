@@ -7,8 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Free notai</title>
     <link rel="manifest" href="/manifest.json">
-    <link rel="icon" href="./icons/notai-192x192.png" type="image/x-icon">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="/icons/notai-192x192.png" type="image/x-icon">
+    <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://corsp.suisuy.eu.org?https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
@@ -308,9 +308,17 @@
                         <button data-ai-action="translate"><i class="fas fa-language"></i> Translate</button>
                     </div>
                     <div class="ai-extras">
-                        <label class="use-comment-toggle" title="When enabled, AI replies attach as comments to the selected text.">
+                        <label class="ai-option-toggle" title="Include configured system prompt in AI requests.">
+                            <input type="checkbox" id="enableSystemPromptCheckbox" checked>
+                            System Prompt
+                        </label>
+                        <label class="ai-option-toggle" title="Send text before current cursor as context in AI requests.">
+                            <input type="checkbox" id="enableContextCheckbox" checked>
+                            Context
+                        </label>
+                        <label class="use-comment-toggle" title="Attach AI replies as comments to selected text.">
                             <input type="checkbox" id="useCommentCheckbox">
-                            Use Comment
+                            Comment
                         </label>
                     </div>
                 </div>
@@ -320,7 +328,7 @@
     <button id="quickAskBtn" class="quick-ask-btn">
         <i class="fas fa-paper-plane"></i>
     </button>
-    <script type="module" src="src/main.js"></script>
+    <script type="module" src="/src/main.js"></script>
     <div id="toastContainer" class="toast-container"></div>
     <!-- Profile Modal -->
     <div id="profileModal" class="modal">
@@ -450,11 +458,25 @@
             </div>
         </div>
     </div>
+    <div id="aiRequestDetailsModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="aiRequestDetailsTitle">
+        <div class="modal-content">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 id="aiRequestDetailsTitle" style="margin:0;">AI Request Details</h3>
+                <button class="close" aria-label="Close" data-close-ai-details>&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="aiRequestDetailsContent" class="ai-request-details"></pre>
+            </div>
+            <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+                <button id="aiRequestDetailsCloseBtn" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./service-worker.js').then(registration => {
+                navigator.serviceWorker.register('/service-worker.js').then(registration => {
                     console.log('Service Worker registered with scope:', registration.scope);
                 }).catch(error => {
                     console.error('Service Worker registration failed:', error);

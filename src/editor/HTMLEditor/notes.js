@@ -2,6 +2,149 @@ import currentUser from '../../state/currentUser.js';
 import utils from '../../utils/index.js';
 
 const mixin = {
+  decodeRouteSegment(segment = "") {
+    try {
+      return decodeURIComponent(segment).trim();
+    } catch {
+      return `${segment ?? ""}`.trim();
+    }
+  },
+
+  normalizeRouteComparable(value = "") {
+    return `${value ?? ""}`.trim().toLowerCase();
+  },
+
+  parseRoutePath(routePath = "") {
+    const path = `${routePath ?? ""}`.trim();
+    const segments = path.split("/").filter(Boolean);
+    if (segments.length !== 2) {
+      return null;
+    }
+
+    const [folderSegment, noteSegment] = segments;
+    const folderName = this.decodeRouteSegment(folderSegment);
+    const noteTitle = this.decodeRouteSegment(noteSegment);
+    if (!folderName || !noteTitle) {
+      return null;
+    }
+
+    return { folderName, noteTitle };
+  },
+
+  parseNoteRouteFromLocation() {
+    const params = new URLSearchParams(window.location.search || "");
+    const routeParam = params.get("p");
+    if (routeParam) {
+      const parsedFromParam = this.parseRoutePath(routeParam);
+      if (parsedFromParam) {
+        return parsedFromParam;
+      }
+    }
+
+    const pathname = window.location?.pathname || "/";
+    return this.parseRoutePath(pathname);
+  },
+
+  getFolderNameForRoute(folderId) {
+    if (!folderId) {
+      return "default";
+    }
+
+    if (this.folderNameById instanceof Map) {
+      const knownName = this.folderNameById.get(String(folderId));
+      if (knownName) {
+        return knownName;
+      }
+    }
+
+    const folderElement = Array.from(document.querySelectorAll("[data-folder-id]"))
+      .find((element) => String(element.dataset.folderId) === String(folderId));
+    const domName = folderElement?.querySelector(".folder-content span")?.textContent?.trim();
+    return domName || "default";
+  },
+
+  updateUrlForNote(note, options = {}) {
+    if (!note?.title || !window?.history || !window?.location) {
+      return;
+    }
+
+    const { replace = false } = options;
+    const folderName = this.getFolderNameForRoute(note.folder_id);
+    const nextPath = `/${encodeURIComponent(folderName)}/${encodeURIComponent(note.title)}`;
+    const params = new URLSearchParams(window.location.search || "");
+    params.delete("raw");
+    params.set("p", nextPath);
+    const nextSearch = params.toString();
+    const nextUrl = `/${nextSearch ? `?${nextSearch}` : ""}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (currentUrl === nextUrl) {
+      return;
+    }
+
+    const state = {
+      noteId: note.note_id,
+      folderName,
+      noteTitle: note.title,
+    };
+
+    if (replace) {
+      window.history.replaceState(state, "", nextUrl);
+    } else {
+      window.history.pushState(state, "", nextUrl);
+    }
+  },
+
+  async resolveNoteIdFromRoute(folderName, noteTitle) {
+    if (!folderName || !noteTitle) {
+      return null;
+    }
+
+    const folders = await this.apiRequest("GET", "/folders", null, false, true);
+    if (!Array.isArray(folders)) {
+      return null;
+    }
+
+    this.folderNameById = new Map();
+    folders.forEach((folder) => {
+      this.folderNameById.set(String(folder.folder_id), folder.folder_name || "");
+    });
+
+    const normalizedFolderName = this.normalizeRouteComparable(folderName);
+    const targetFolder = folders.find((folder) => (
+      this.normalizeRouteComparable(folder.folder_name) === normalizedFolderName
+    ));
+
+    if (!targetFolder?.folder_id) {
+      return null;
+    }
+
+    const folderId = encodeURIComponent(targetFolder.folder_id);
+    const notes = await this.apiRequest("GET", `/folders/${folderId}/notes`, null, false, true);
+    if (!Array.isArray(notes)) {
+      return null;
+    }
+
+    const normalizedNoteTitle = this.normalizeRouteComparable(noteTitle);
+    const targetNote = notes.find((note) => (
+      this.normalizeRouteComparable(note.title) === normalizedNoteTitle
+    ));
+
+    return targetNote?.note_id || null;
+  },
+
+  async openNoteFromRoute(route, options = {}) {
+    const { folderName, noteTitle } = route || {};
+    const { urlMode = "none" } = options;
+    const noteId = await this.resolveNoteIdFromRoute(folderName, noteTitle);
+    if (!noteId) {
+      return false;
+    }
+
+    await this.loadNote(noteId, { urlMode });
+    return true;
+  },
+
   async loadNotes(folderId = "1733485657799jj0.5911120915160637") {
     try {
       // First try to get from cache
@@ -291,10 +434,21 @@ const mixin = {
   },
 
   async loadNote(note_id, options = {}) {
-    const { skipRemote = false } = options;
+    const { skipRemote = false, urlMode = "auto" } = options;
     console.log('Loading note:', note_id);
 
     const isSwitchingNote = this.currentNoteId && this.currentNoteId !== note_id;
+    let shouldPushRoute = urlMode === "push" || (urlMode === "auto" && Boolean(isSwitchingNote));
+    let shouldReplaceRoute = urlMode === "replace";
+    const updateRouteIfNeeded = (noteData) => {
+      if (!noteData || urlMode === "none") {
+        return;
+      }
+      this.updateUrlForNote(noteData, { replace: shouldReplaceRoute || !shouldPushRoute });
+      shouldPushRoute = false;
+      shouldReplaceRoute = true;
+    };
+
     if (this.isDefaultNoteId(note_id)) {
       this.resetOversizedDefaultNoteState({
         noteId: note_id,
@@ -319,6 +473,7 @@ const mixin = {
       if (cachedNote) {
         // Update UI with cached data
         this.updateNoteUI(cachedNote);
+        updateRouteIfNeeded(cachedNote);
         this.maybeScheduleOversizedDefaultNotePrompt(cachedNote);
         console.log('Loaded note from cache');
       }
@@ -351,6 +506,7 @@ const mixin = {
           }
           // Update UI with remote data
           this.updateNoteUI(note, { addToRecents: isSwitchingNote });
+          updateRouteIfNeeded(note);
           this.maybeScheduleOversizedDefaultNotePrompt(note);
 
 

@@ -1,1 +1,1 @@
-python3 -m http.server 3000
+python3 spa_server.py 3000

@@ -448,6 +448,79 @@ async function handleRequest(request, env) {
             }
         }
 
+        const routePathMatch = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+        if (method === "GET" && routePathMatch) {
+            const folderSegment = routePathMatch[1];
+            const noteSegment = routePathMatch[2];
+            const reservedSegments = new Set([
+                "users",
+                "folders",
+                "notes",
+                "search",
+                "client.js",
+                "service-worker.js",
+                "manifest.json",
+                "icons",
+                "src",
+                "doc",
+                "demo",
+            ]);
+            const firstSegmentLower = folderSegment.toLowerCase();
+            const hasDotInSegment = folderSegment.includes(".") || noteSegment.includes(".");
+
+            if (!reservedSegments.has(firstSegmentLower) && !hasDotInSegment) {
+                const decodedFolderName = safeDecodeURIComponent(folderSegment).trim();
+                const decodedNoteTitle = safeDecodeURIComponent(noteSegment).trim();
+
+                if (searchParams.get("raw") === "1") {
+                    const user_id = await authenticate(request);
+                    if (!user_id) {
+                        return new Response("Unauthorized", {
+                            status: 401,
+                            headers: {
+                                "Content-Type": "text/plain; charset=utf-8",
+                                ...corsHeaders(),
+                            },
+                        });
+                    }
+
+                    const note = await env.DB.prepare(`
+        SELECT n.note_id, n.title, n.content, n.last_updated, f.folder_name
+        FROM notes n
+        LEFT JOIN folders f
+          ON f.folder_id = n.folder_id
+         AND f.user_id = n.user_id
+        WHERE n.user_id = ? AND f.folder_name = ? AND n.title = ?
+        LIMIT 1
+      `).bind(user_id, decodedFolderName, decodedNoteTitle).first();
+
+                    if (!note) {
+                        return new Response("Note not found.", {
+                            status: 404,
+                            headers: {
+                                "Content-Type": "text/plain; charset=utf-8",
+                                ...corsHeaders(),
+                            },
+                        });
+                    }
+
+                    return new Response(note.content || "", {
+                        headers: {
+                            "Content-Type": "text/html; charset=utf-8",
+                            ...corsHeaders(),
+                        },
+                    });
+                }
+
+                return new Response(HTML_CONTENT, {
+                    headers: {
+                        "Content-Type": "text/html",
+                        ...corsHeaders(),
+                    },
+                });
+            }
+        }
+
         // Route Definitions
 
         // POST /users - Register a new user
@@ -924,6 +997,14 @@ function jsonResponse(data, status = 200) {
             ...corsHeaders()
         }
     });
+}
+
+function safeDecodeURIComponent(value = "") {
+    try {
+        return decodeURIComponent(value);
+    } catch (_) {
+        return value;
+    }
 }
 
 function buildSnippet(text = "", term = "", context = 80) {

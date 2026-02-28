@@ -672,7 +672,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       if (helpMarkdown) {
         helpMarkdown.innerHTML = marked.parse(readmeContent);
       }
-      window.location.href = 'help.html';
+      window.location.href = '/help.html';
     } catch (error) {
       console.error("Error loading help page:", error);
       this.showToast("Failed to load help page.");
@@ -2212,15 +2212,41 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     }
   },
 
-  showToast(message, type = 'error') {
+  showToast(message, type = 'error', options = {}) {
+    const {
+      actionLabel = '',
+      onAction = null,
+      durationMs = 10000,
+    } = options || {};
     const toastContainer = document.getElementById('toastContainer');
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
+    toast.className = `toast ${type}${actionLabel ? ' has-action' : ''}`;
+    const messageEl = document.createElement('div');
+    messageEl.className = 'toast-message';
+    messageEl.textContent = `${message ?? ''}`;
+    toast.appendChild(messageEl);
 
-    toast.innerHTML = `
-        <div class="toast-message">${message}</div>
-        <button class="toast-close"><i class="fas fa-times"></i></button>
-    `;
+    if (actionLabel && typeof onAction === 'function') {
+      const actionButton = document.createElement('button');
+      actionButton.type = 'button';
+      actionButton.className = 'toast-action';
+      actionButton.textContent = actionLabel;
+      actionButton.addEventListener('click', () => {
+        try {
+          onAction();
+        } catch (error) {
+          console.error('Toast action failed:', error);
+        }
+      });
+      toast.appendChild(actionButton);
+    }
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'toast-close';
+    closeButton.innerHTML = '<i class="fas fa-times"></i>';
+    toast.appendChild(closeButton);
+
     if (!toastContainer) {
       console.error("toastContainer not found in the DOM");
       return;
@@ -2234,14 +2260,16 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     const closeToast = () => {
       toast.style.animation = 'slideOut 0.3s ease-out forwards';
       setTimeout(() => {
-        toastContainer.removeChild(toast);
+        if (toast.parentElement === toastContainer) {
+          toastContainer.removeChild(toast);
+        }
       }, 300);
     };
 
     closeBtn.addEventListener('click', closeToast);
 
-    // Auto close after 10 seconds
-    setTimeout(closeToast, 10000);
+    // Auto close after configured timeout
+    setTimeout(closeToast, durationMs);
 
     // **New Code Starts Here**
     if (type === 'error') {

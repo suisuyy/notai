@@ -87,7 +87,7 @@ const handleLogin = async () => {
     if (!result.error) {
       localStorage.setItem("userId", userId);
       localStorage.setItem("credentials", credentials);
-      window.location.href = "index.html";
+      window.location.href = "/index.html";
       return;
     }
 
@@ -126,7 +126,7 @@ const handleRegister = async () => {
   if (result.success) {
     localStorage.setItem("userId", userId);
     localStorage.setItem("credentials", `${userId}:${passwordHash}`);
-    window.location.href = "index.html";
+    window.location.href = "/index.html";
     return;
   }
 

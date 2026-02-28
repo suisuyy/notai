@@ -46,7 +46,12 @@ Source (`src/`)
 - When adding static files that must be available offline, update both `src/main.js` `CORE_CACHE_ITEMS` and the service worker if needed.
 
 ## Run/Develop
-- Serve the directory with any static server or open `auth.html` / `index.html` directly in a modern browser.
+- Start the SPA fallback server for deep-link routing:
+  - Windows (PowerShell): `.\run.ps1 -Port 5500`
+  - Python: `python3 spa_server.py 3000`
+- Open the URL shown by the server (for example `http://127.0.0.1:5500/`).
+- Preferred sharable route format is query-based: `/?p=/default/default_note`.
+- Legacy path-style routes like `/default/default_note` are still parsed when the server supports rewrites.
 - Configure API endpoints in `src/config.js` when pointing to different backends.
 
 ## Common Mistakes

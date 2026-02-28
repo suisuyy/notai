@@ -64,8 +64,9 @@ const mixin = {
 
   async checkAuthAndLoadNotes() {
     const defaultNoteId = currentUser.userId ? `default_note_${currentUser.userId}` : null;
+    const routeTarget = this.parseNoteRouteFromLocation?.();
 
-    if (!this.currentNoteId && defaultNoteId) {
+    if (!routeTarget && !this.currentNoteId && defaultNoteId) {
       this.loadNote(defaultNoteId, { skipRemote: true });
     }
 
@@ -95,19 +96,22 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
               content: defaultNoteContent,
               last_updated: now,
             });
-
-            if (!this.currentNoteId || this.currentNoteId === defaultNoteId) {
-              await this.loadNote(defaultNoteId, { skipRemote: true });
-            }
-
-            await this.loadNotes();
           }
-        } else {
-          if (defaultNoteId && (!this.currentNoteId || this.currentNoteId === defaultNoteId)) {
-            await this.loadNote(defaultNoteId, { skipRemote: true });
-          }
-          await this.loadNotes();
         }
+
+        let openedFromRoute = false;
+        if (routeTarget && this.openNoteFromRoute) {
+          openedFromRoute = await this.openNoteFromRoute(routeTarget, { urlMode: "none" });
+          if (!openedFromRoute) {
+            this.showToast("Unable to open note from URL.", "info");
+          }
+        }
+
+        if (!openedFromRoute && defaultNoteId && (!this.currentNoteId || this.currentNoteId === defaultNoteId)) {
+          await this.loadNote(defaultNoteId, { skipRemote: true });
+        }
+
+        await this.loadNotes();
       }
     } else {
       this.logout();

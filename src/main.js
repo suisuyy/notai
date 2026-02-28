@@ -1,33 +1,33 @@
 import HTMLEditor from "./editor/HTMLEditor/index.js";
 import currentUser from "./state/currentUser.js";
-import { DEFAULT_CACHE_NAME } from "./config.js";
+import { API_BASE_URL, DEFAULT_CACHE_NAME } from "./config.js";
 
 const CORE_CACHE_ITEMS = [
-  "./",
-  "./index.html",
-  "./auth.html",
-  "./styles.css",
-  "./src/config.js",
-  "./src/main.js",
-  "./src/editor/HTMLEditor/constants.js",
-  "./src/editor/HTMLEditor/index.js",
-  "./src/editor/HTMLEditor/core.js",
-  "./src/editor/HTMLEditor/ai.js",
-  "./src/editor/HTMLEditor/comments.js",
-  "./src/editor/HTMLEditor/blocks.js",
-  "./src/editor/HTMLEditor/auth.js",
-  "./src/editor/HTMLEditor/folders.js",
-  "./src/editor/HTMLEditor/notes.js",
-  "./src/editor/HTMLEditor/files.js",
-  "./src/editor/HTMLEditor/media.js",
-  "./src/editor/HTMLEditor/history.js",
-  "./src/editor/HTMLEditor/api.js",
-  "./src/state/currentUser.js",
-  "./src/state/globalDevices.js",
-  "./src/utils/index.js",
-  "./src/pages/auth.js",
-  "./icons/notai-192x192.png",
-  "./icons/notai-512x512.png",
+  "/",
+  "/index.html",
+  "/auth.html",
+  "/styles.css",
+  "/src/config.js",
+  "/src/main.js",
+  "/src/editor/HTMLEditor/constants.js",
+  "/src/editor/HTMLEditor/index.js",
+  "/src/editor/HTMLEditor/core.js",
+  "/src/editor/HTMLEditor/ai.js",
+  "/src/editor/HTMLEditor/comments.js",
+  "/src/editor/HTMLEditor/blocks.js",
+  "/src/editor/HTMLEditor/auth.js",
+  "/src/editor/HTMLEditor/folders.js",
+  "/src/editor/HTMLEditor/notes.js",
+  "/src/editor/HTMLEditor/files.js",
+  "/src/editor/HTMLEditor/media.js",
+  "/src/editor/HTMLEditor/history.js",
+  "/src/editor/HTMLEditor/api.js",
+  "/src/state/currentUser.js",
+  "/src/state/globalDevices.js",
+  "/src/utils/index.js",
+  "/src/pages/auth.js",
+  "/icons/notai-192x192.png",
+  "/icons/notai-512x512.png",
 ];
 
 const stopMediaTracksIfPossible = () => {
@@ -66,6 +66,118 @@ const warmRuntimeCache = () => {
   }, 5000);
 };
 
+const decodeRouteSegment = (segment = "") => {
+  try {
+    return decodeURIComponent(segment).trim();
+  } catch {
+    return `${segment ?? ""}`.trim();
+  }
+};
+
+const normalizeRouteComparable = (value = "") => `${value ?? ""}`.trim().toLowerCase();
+
+const parseRoutePath = (routePath = "") => {
+  const path = `${routePath ?? ""}`.trim();
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length !== 2) {
+    return null;
+  }
+
+  const [folderSegment, noteSegment] = segments;
+  const folderName = decodeRouteSegment(folderSegment);
+  const noteTitle = decodeRouteSegment(noteSegment);
+  if (!folderName || !noteTitle) {
+    return null;
+  }
+
+  return { folderName, noteTitle };
+};
+
+const parseNoteRouteFromLocation = () => {
+  const params = new URLSearchParams(window.location.search || "");
+  const routeParam = params.get("p");
+  if (routeParam) {
+    const parsedFromParam = parseRoutePath(routeParam);
+    if (parsedFromParam) {
+      return parsedFromParam;
+    }
+  }
+
+  const pathname = window.location?.pathname || "/";
+  return parseRoutePath(pathname);
+};
+
+const fetchApiJson = async (endpoint) => {
+  const headers = { "Content-Type": "application/json" };
+  if (currentUser.userId && currentUser.credentials) {
+    headers.Authorization = `Basic ${currentUser.credentials}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: "GET", headers });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return null;
+  }
+  return payload;
+};
+
+const resolveNoteFromRoute = async (route) => {
+  const folders = await fetchApiJson("/folders");
+  if (!Array.isArray(folders)) {
+    return null;
+  }
+
+  const targetFolder = folders.find((folder) => (
+    normalizeRouteComparable(folder.folder_name) === normalizeRouteComparable(route.folderName)
+  ));
+  if (!targetFolder?.folder_id) {
+    return null;
+  }
+
+  const notes = await fetchApiJson(`/folders/${encodeURIComponent(targetFolder.folder_id)}/notes`);
+  if (!Array.isArray(notes)) {
+    return null;
+  }
+
+  const targetNote = notes.find((note) => (
+    normalizeRouteComparable(note.title) === normalizeRouteComparable(route.noteTitle)
+  ));
+  if (!targetNote?.note_id) {
+    return null;
+  }
+
+  return fetchApiJson(`/notes/${encodeURIComponent(targetNote.note_id)}`);
+};
+
+const maybeRenderRawNoteFromUrl = async () => {
+  const params = new URLSearchParams(window.location.search || "");
+  if (params.get("raw") !== "1") {
+    return false;
+  }
+
+  const route = parseNoteRouteFromLocation();
+  if (!route) {
+    document.body.innerHTML = "<pre>Invalid note URL.</pre>";
+    return true;
+  }
+
+  if (!currentUser.userId || !currentUser.credentials) {
+    document.body.innerHTML = "<pre>Sign in first, then reopen this URL.</pre>";
+    return true;
+  }
+
+  const note = await resolveNoteFromRoute(route);
+  if (!note || note.error) {
+    document.body.innerHTML = "<pre>Note not found.</pre>";
+    return true;
+  }
+
+  document.title = note.title || "Raw Note";
+  document.body.className = "";
+  document.body.innerHTML = note.content || "";
+  return true;
+};
+
 window.addEventListener("blur", stopMediaTracksIfPossible, { once: true });
 
 document.addEventListener("visibilitychange", () => {
@@ -77,6 +189,10 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("load", warmRuntimeCache);
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (await maybeRenderRawNoteFromUrl()) {
+    return;
+  }
+
   // In-app UI modals: login prompt and update prompt (set up early)
   const loginPromptModal = document.getElementById("loginPromptModal");
   const loginPromptLoginBtn = document.getElementById("loginPromptLoginBtn");
@@ -94,7 +210,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   loginPromptLoginBtn?.addEventListener("click", () => {
     closeModal(loginPromptModal);
-    window.location.href = "auth.html";
+    window.location.href = "/auth.html";
   });
   loginPromptDismissBtn?.addEventListener("click", () => closeModal(loginPromptModal));
   loginPromptModal?.addEventListener("click", (e) => {
@@ -119,6 +235,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     editorInstance = new HTMLEditor();
     window.editor = editorInstance;
     await editorInstance.loadFolders();
+
+    window.addEventListener("popstate", async () => {
+      const route = window.editor?.parseNoteRouteFromLocation?.();
+      if (!route) {
+        return;
+      }
+      try {
+        await window.editor.openNoteFromRoute?.(route, { urlMode: "none" });
+      } catch (error) {
+        console.error("Failed to open note from history navigation:", error);
+      }
+    });
 
     const profileModal = document.getElementById("profileModal");
     const userProfileBtn = document.getElementById("userProfileBtn");

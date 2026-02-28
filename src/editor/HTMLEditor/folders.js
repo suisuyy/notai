@@ -45,6 +45,13 @@ const mixin = {
       : "/folders";
     const folders = await this.apiRequest("GET", endpoint);
     if (Array.isArray(folders)) {
+      if (!parentFolderId) {
+        this.folderNameById = new Map();
+        folders.forEach((folder) => {
+          this.folderNameById.set(String(folder.folder_id), folder.folder_name || "");
+        });
+      }
+
       const foldersList = document.getElementById("folders");
       foldersList.innerHTML = "";
 

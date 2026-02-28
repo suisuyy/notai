@@ -4,31 +4,20 @@ const mixin = {
     if (!selection.rangeCount) return null;
 
     const range = selection.getRangeAt(0);
+    const hasSelection = !range.collapsed && !!selection.toString().trim();
     const startContainer = range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
       : range.startContainer;
 
-    // Find the current block, prioritizing the block containing the cursor
-    let currentBlock = this.currentBlock;
-
-    // If no block found, try to find the last block
-    if (!currentBlock) {
-      const blocks = this.editor.querySelectorAll('.block');
-      currentBlock = blocks[blocks.length - 1];
+    if (!this.editor || !(this.editor instanceof Node)) {
+      return null;
     }
 
-    if (!currentBlock) return null;
-
-    // Get all blocks before the current block
-    const allBlocks = Array.from(this.editor.querySelectorAll('.block'));
-    const currentBlockIndex = allBlocks.indexOf(currentBlock);
-
-    // Collect context from previous blocks
-    const contextBlocks = allBlocks.slice(0, currentBlockIndex);
-    // const contextText = contextBlocks
-    //   .map(block => block.textContent.trim())
-    //   .filter(text => text)
-    //   .join('\n\n');
+    // Find the current block, prioritizing the block containing the cursor
+    let currentBlock = startContainer?.closest?.('.block') || this.currentBlock;
+    if (!currentBlock || !(currentBlock instanceof Node) || !this.editor.contains(currentBlock)) {
+      currentBlock = null;
+    }
 
     function extractTextWithLineBreaks(range) {
       let fragment = range.cloneContents();
@@ -53,21 +42,61 @@ const mixin = {
       traverseNodes(fragment);
       return textParts.join("");
     }
-    let contextText = '';
-    // Get the range at the current selection
+    const getBeforeCaretText = () => {
+      try {
+        const beforeRange = document.createRange();
+        beforeRange.setStart(this.editor, 0);
+        beforeRange.setEnd(range.startContainer, range.startOffset);
+        return extractTextWithLineBreaks(beforeRange);
+      } catch {
+        return "";
+      }
+    };
 
-    // Create a new range from start of div to cursor position
-    const preCursorRange = document.createRange();
-    preCursorRange.setStart(this.editor, 0);
-    preCursorRange.setEnd(this.currentBlock, 0);
+    let contextText = "";
+    let currentText = "";
 
-    // Get all text before cursor
-    contextText = extractTextWithLineBreaks(preCursorRange);
-    console.log(contextText);
+    if (currentBlock) {
+      let beforeBlockText = "";
+      try {
+        const beforeBlockRange = document.createRange();
+        beforeBlockRange.setStart(this.editor, 0);
+        beforeBlockRange.setEnd(currentBlock, 0);
+        beforeBlockText = extractTextWithLineBreaks(beforeBlockRange).trim();
+      } catch {
+        beforeBlockText = "";
+      }
 
-
-    // Get the current block's text
-    const currentText = currentBlock.textContent.trim();
+      // In block mode with selection: use text before selected text inside the same block.
+      // If that is empty, fall back to text before the block.
+      if (hasSelection && currentBlock.contains(range.startContainer)) {
+        try {
+          const inBlockBeforeSelectionRange = document.createRange();
+          inBlockBeforeSelectionRange.setStart(currentBlock, 0);
+          inBlockBeforeSelectionRange.setEnd(range.startContainer, range.startOffset);
+          contextText = extractTextWithLineBreaks(inBlockBeforeSelectionRange).trim();
+        } catch {
+          contextText = "";
+        }
+      }
+      if (!contextText) {
+        contextText = beforeBlockText;
+      }
+      currentText = hasSelection ? selection.toString().trim() : (currentBlock.textContent || "").trim();
+    } else {
+      const beforeCaretText = getBeforeCaretText();
+      if (hasSelection) {
+        // With selection outside blocks: use text before selected text.
+        contextText = beforeCaretText.trim();
+        currentText = selection.toString().trim();
+      } else {
+        // No selection and outside blocks: use text before current line.
+        const normalized = beforeCaretText.replace(/\r\n/g, "\n");
+        const lineStartIndex = normalized.lastIndexOf("\n");
+        contextText = (lineStartIndex === -1 ? "" : normalized.slice(0, lineStartIndex)).trim();
+        currentText = (lineStartIndex === -1 ? normalized : normalized.slice(lineStartIndex + 1)).trim();
+      }
+    }
 
     console.log('Current text:', currentText, '\n Context:', contextText);
     return {

@@ -1,7 +1,35 @@
+import { AI_PROXY_URL } from '../../config.js';
 import utils from '../../utils/index.js';
 
 const mixin = {
   setupAIToolbar() {
+    const initToolbarCheckbox = (id, storageKey, defaultValue) => {
+      const checkbox = document.getElementById(id);
+      if (!checkbox) {
+        return;
+      }
+      try {
+        const saved = localStorage.getItem(storageKey);
+        checkbox.checked = saved === null ? defaultValue : saved === 'true';
+        checkbox.addEventListener('mousedown', (event) => {
+          this._savedSelection = this.captureSelection && this.captureSelection();
+          // Keep current text selection so toolbar does not auto-hide while toggling options.
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        checkbox.addEventListener('pointerdown', (event) => {
+          event.stopPropagation();
+        });
+        checkbox.addEventListener('change', () => {
+          localStorage.setItem(storageKey, checkbox.checked ? 'true' : 'false');
+          if (this._savedSelection && this.restoreSelection) {
+            this.restoreSelection(this._savedSelection);
+            this._savedSelection = null;
+          }
+        });
+      } catch (_) { }
+    };
+
     // Load saved model preferences
     const savedModels = JSON.parse(localStorage.getItem('aiModelPreferences') || '{}');
 
@@ -41,17 +69,31 @@ const mixin = {
       }
     });
 
-    // Initialize "Use Comment" checkbox preference
-    try {
-      const cb = document.getElementById('useCommentCheckbox');
-      if (cb) {
-        const saved = localStorage.getItem('aiUseComment');
-        cb.checked = saved === null ? false : saved === 'true';
-        cb.addEventListener('change', () => {
-          localStorage.setItem('aiUseComment', cb.checked ? 'true' : 'false');
-        });
-      }
-    } catch (_) { }
+    // Initialize AI toolbar checkbox preferences
+    initToolbarCheckbox('enableSystemPromptCheckbox', 'aiEnableSystemPrompt', true);
+    initToolbarCheckbox('enableContextCheckbox', 'aiEnableContext', true);
+    initToolbarCheckbox('useCommentCheckbox', 'aiUseComment', false);
+    this.aiToolbar?.querySelectorAll('.ai-extras label').forEach((label) => {
+      label.addEventListener('mousedown', (event) => {
+        this._savedSelection = this.captureSelection && this.captureSelection();
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      label.addEventListener('pointerdown', (event) => {
+        event.stopPropagation();
+      });
+      label.addEventListener('click', (event) => {
+        const checkbox = label.querySelector('input[type="checkbox"]');
+        if (!checkbox || event.target === checkbox) {
+          return;
+        }
+        // Toggle from label text click while keeping selection stable.
+        event.preventDefault();
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    this.setupAIRequestDetailsModal();
   },
 
   updateModelDropdowns() {
@@ -132,7 +174,81 @@ const mixin = {
     return model ? model.name : value;
   },
 
-  async handleAIAction(action, text, includeCurrentBlockMedia = false) {
+  setupAIRequestDetailsModal() {
+    if (this._aiRequestDetailsModalBound) {
+      return;
+    }
+
+    const modal = document.getElementById('aiRequestDetailsModal');
+    if (!modal) {
+      return;
+    }
+
+    const closeButton = document.getElementById('aiRequestDetailsCloseBtn');
+    const closeIcon = modal.querySelector('[data-close-ai-details]');
+    const closeModal = () => {
+      modal.style.display = 'none';
+    };
+
+    closeButton?.addEventListener('click', closeModal);
+    closeIcon?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+
+    this._aiRequestDetailsModalBound = true;
+  },
+
+  formatAIRequestDetails(runDetails) {
+    const run = runDetails || {};
+    const requests = Array.isArray(run.requests) ? run.requests : [];
+    const lines = [];
+
+    requests.forEach((entry, index) => {
+      if (index > 0) {
+        lines.push('');
+      }
+      lines.push(`Request ${index + 1}${entry.model ? ` (${entry.model})` : ''}`);
+      lines.push(`URL: ${entry.requestUrl || ''}`);
+      lines.push(`Method: ${entry.requestMethod || 'POST'}`);
+      lines.push('Body:');
+      lines.push(`${entry.requestBody || ''}`);
+      lines.push('Response Final Result:');
+      lines.push(`${entry.rawResponseText || ''}`);
+    });
+
+    return lines.join('\n');
+  },
+
+  openAIRequestDetailsModal(runDetails) {
+    this.setupAIRequestDetailsModal();
+    const modal = document.getElementById('aiRequestDetailsModal');
+    const content = document.getElementById('aiRequestDetailsContent');
+    if (!modal || !content) {
+      return;
+    }
+
+    content.textContent = this.formatAIRequestDetails(runDetails);
+    modal.style.display = 'block';
+  },
+
+  showAIRequestCompletedNotice(runDetails) {
+    const requests = Array.isArray(runDetails?.requests) ? runDetails.requests : [];
+    const okCount = requests.filter((entry) => !entry.error).length;
+    const total = requests.length;
+    const message = `AI request finished (${okCount}/${total} succeeded)`;
+
+    this.showToast(message, 'success', {
+      actionLabel: 'Details',
+      onAction: () => this.openAIRequestDetailsModal(runDetails),
+      durationMs: 15000,
+    });
+  },
+
+  async handleAIAction(action, text, includeCurrentBlockMedia = false, options = {}) {
+    const { skipContext = false } = options;
 
     this.lastUpdated = utils.getCurrentTimeString();
     //log last updated time
@@ -141,6 +257,10 @@ const mixin = {
     // Respect explicit UI toggle instead of auto length-based heuristic
     const useCommentCheckbox = document.getElementById('useCommentCheckbox');
     const useComment = !!(useCommentCheckbox && useCommentCheckbox.checked);
+    const enableSystemPromptCheckbox = document.getElementById('enableSystemPromptCheckbox');
+    const enableSystemPrompt = !(enableSystemPromptCheckbox && !enableSystemPromptCheckbox.checked);
+    const enableContextCheckbox = document.getElementById('enableContextCheckbox');
+    const enableContext = !(enableContextCheckbox && !enableContextCheckbox.checked);
 
     let customTool = null;
     let prompt = "";
@@ -152,6 +272,82 @@ const mixin = {
       if (customTool) {
         prompt = customTool.prompt.replace('{text}', text);
       }
+    }
+
+    let promptWithContext = prompt;
+    if (!skipContext && enableContext && typeof this.getBlockContext === 'function') {
+      const context = this.getBlockContext();
+      let contextText = (context?.contextText || '').trim();
+
+      const extractTextWithLineBreaks = (sourceRange) => {
+        const fragment = sourceRange.cloneContents();
+        const textParts = [];
+
+        const walk = (node) => {
+          if (!node) return;
+          if (node.nodeType === Node.TEXT_NODE) {
+            textParts.push(node.nodeValue || '');
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) {
+            return;
+          }
+          if (node.tagName === "DIV" || node.tagName === "P" || node.tagName === "BR") {
+            textParts.push("\n");
+          } else {
+            textParts.push(" ");
+          }
+          Array.from(node.childNodes || []).forEach(walk);
+        };
+
+        walk(fragment);
+        return textParts.join("");
+      };
+
+      // Fallback: derive context directly from current selection to ensure previous text is included.
+      if (!contextText) {
+        try {
+          const activeSelection = window.getSelection();
+          if (activeSelection && activeSelection.rangeCount && this.editor) {
+            const activeRange = activeSelection.getRangeAt(0);
+            const startNode = activeRange.startContainer;
+            const startElement = startNode.nodeType === Node.ELEMENT_NODE ? startNode : startNode.parentElement;
+            const activeBlock = startElement?.closest?.('.block');
+
+            if (activeBlock && this.editor.contains(activeBlock)) {
+              try {
+                const inBlockPrefixRange = document.createRange();
+                inBlockPrefixRange.setStart(activeBlock, 0);
+                inBlockPrefixRange.setEnd(startNode, activeRange.startOffset);
+                contextText = extractTextWithLineBreaks(inBlockPrefixRange).trim();
+              } catch {
+                contextText = "";
+              }
+
+              if (!contextText) {
+                const blocks = Array.from(this.editor.querySelectorAll('.block'));
+                const blockIndex = blocks.indexOf(activeBlock);
+                if (blockIndex > 0) {
+                  contextText = (blocks[blockIndex - 1].textContent || '').trim();
+                }
+              }
+            } else {
+              const preSelectionRange = document.createRange();
+              preSelectionRange.setStart(this.editor, 0);
+              preSelectionRange.setEnd(startNode, activeRange.startOffset);
+              contextText = extractTextWithLineBreaks(preSelectionRange).trim();
+            }
+          }
+        } catch {
+          contextText = contextText || "";
+        }
+      }
+
+      promptWithContext =
+        'Use <history> as context only.\n<history>\n' +
+        contextText +
+        '\n</history>\n\n' +
+        prompt;
     }
 
     // Get selected models from buttons
@@ -169,6 +365,18 @@ const mixin = {
       alert("Please select at least one AI model");
       return;
     }
+
+    const aiRunDetails = {
+      action,
+      startedAt: new Date().toISOString(),
+      selectedText: text || '',
+      useComment,
+      contextEnabled: !skipContext && enableContext,
+      systemPromptEnabled: enableSystemPrompt,
+      systemPrompt: enableSystemPrompt ? this.aiSettings.systemPrompt : '',
+      requests: [],
+    };
+    this._latestAIRequestDetails = aiRunDetails;
 
     // Hide AI toolbar immediately
     this.aiToolbar.style.display = 'none';
@@ -257,7 +465,7 @@ const mixin = {
 
     // build content from audio, image, and video tags
     let content = (imageUrl || audioUrl || videoUrl) ? [
-      { type: "text", text: prompt },
+      { type: "text", text: promptWithContext },
       ...(imageUrl ? [{
         type: "image_url",
         image_url: {
@@ -278,7 +486,7 @@ const mixin = {
           format: 'mpeg'
         }
       }] : [])
-    ] : prompt
+    ] : promptWithContext
 
     // Prepare a single comment group container if in comment mode
     let commentGroup = null;
@@ -317,17 +525,36 @@ const mixin = {
       commentGroup.classList.add('showcomment');
     }
 
+    let completedResponses = 0;
+    const totalResponses = selectedModels.length;
+    const finalizeRequests = () => {
+      this.showAIRequestCompletedNotice(aiRunDetails);
+    };
+
     // Make parallel requests to selected models
-    const requests = selectedModels.map(modelName => {
+    selectedModels.forEach(modelName => {
       const modelConfig = this.aiSettings.models.find(m => m.model_id === modelName);
+      const modelSystemPrompt = enableSystemPrompt
+        ? this.aiSettings.systemPrompt +
+        (modelName.includes('audio') ? "\n\n you are in audio mode now, you are talent voice actor, you can sing and speak in various tone,do not use html to reply me, only use image or video tag if needed, use <br> tag for newline" : "")
+        : '';
+      const requestDetail = {
+        model: modelName,
+        requestUrl: modelConfig?.url || AI_PROXY_URL,
+        requestMethod: 'POST',
+        requestBody: '',
+        rawResponseText: '',
+        error: '',
+        streamEnabled: false,
+      };
+      aiRunDetails.requests.push(requestDetail);
+
       let requestBody = {
         messages: [
-          {
+          ...(enableSystemPrompt ? [{
             role: "system",
-            content:
-              this.aiSettings.systemPrompt +
-              (modelName.includes('audio') ? "\n\n you are in audio mode now, you are talent voice actor, you can sing and speak in various tone,do not use html to reply me, only use image or video tag if needed, use <br> tag for newline" : "")
-          },
+            content: modelSystemPrompt
+          }] : []),
           {
             role: "user",
             content: content
@@ -349,6 +576,7 @@ const mixin = {
           console.error('Error parsing additional config:', error);
         }
       }
+      requestDetail.requestBody = JSON.stringify(requestBody, null, 2);
 
 
 
@@ -490,11 +718,9 @@ const mixin = {
           const errorMessage = response.error.code === "RateLimitReached"
             ? `Rate limit reached for ${modelName}. Please try again later or choose another model.`
             : `Error with ${modelName}: ${response.error.message + response.error.code || response.error.toString() || 'Unknown error'}`;
+          requestDetail.error = errorMessage;
+          requestDetail.rawResponseText = errorMessage;
           this.showToast(errorMessage);
-          completedResponses++;
-          if (completedResponses === totalResponses) {
-            this.delayedSaveNote(true);
-          }
           return;
         }
 
@@ -505,6 +731,7 @@ const mixin = {
         modelName.includes('gpt-4o-audio') ? enable_stream = false : enable_stream = enable_stream;
         modelName.includes('gpt-4o-mini-audio') ? enable_stream = false : enable_stream = enable_stream;
         modelName.includes('openai-audio') ? enable_stream = false : enable_stream = enable_stream;
+        requestDetail.streamEnabled = enable_stream;
 
 
         if (enable_stream) {
@@ -593,6 +820,7 @@ const mixin = {
 
           // Final update of the UI
           contentEl.innerHTML = text + '<br><br> by ' + modelName;
+          requestDetail.rawResponseText = text;
           console.log(text);
 
           this.delayedSaveNote();
@@ -605,12 +833,14 @@ const mixin = {
           if (responseObject.choices[0].message.audio) {
             let audio = responseObject.choices[0].message.audio;
             let audioUrl = 'data:audio/wav;base64,' + audio.data;
+            requestDetail.rawResponseText = audio.transcript || '';
             contentEl.innerHTML = `<audio controls src="${audioUrl}" type="audio/wav"></audio>
             <br><br> ${audio.transcript} 
             <br><br> by ${modelName}`;
 
           }
           else {
+            requestDetail.rawResponseText = responseObject.choices[0].message.content || '';
             contentEl.innerHTML = responseObject.choices[0].message.content + '<br><br> by ' + modelName;
 
           }
@@ -621,21 +851,18 @@ const mixin = {
         }
       }).catch(error => {
         console.error(`Error with ${modelName} request:`, error);
+        requestDetail.error = `${error || 'error'}`;
+        requestDetail.rawResponseText = `${error || 'error'}`;
         this.showToast(`Error with ${modelName}: ${error || ' error'}`);
+      }).finally(() => {
         completedResponses++;
         if (completedResponses === totalResponses) {
           this.delayedSaveNote(true);
           this.cleanNote();
-
+          finalizeRequests();
         }
       });
 
-    });
-
-    let completedResponses = 0;
-    const totalResponses = requests.length;
-
-    requests.forEach(async (request, index) => {
     });
 
   },
@@ -646,7 +873,7 @@ const mixin = {
       alert('Please select or create a block first');
       return;
     }
-    this.handleAIAction('ask', 'this is our chat history,when generate image, dont include text from history unless needed :\n <history>' + context.contextText + '\n</history>\n\n\n' + context.currentText, true);
+    this.handleAIAction('ask', 'this is our chat history,when generate image, dont include text from history unless needed :\n <history>' + context.contextText + '\n</history>\n\n\n' + context.currentText, true, { skipContext: true });
   },
 
   setupAISettings() {

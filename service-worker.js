@@ -1,31 +1,31 @@
 // service-worker.js
-const CACHE_NAME = 'app-cache-v2';
+const CACHE_NAME = 'app-cache-v3';
 const CORE_ASSETS = [
-  './',
-  './index.html',
-  './auth.html',
-  './styles.css',
-  './src/editor/HTMLEditor/constants.js',
-  './src/config.js',
-  './src/main.js',
-  './src/editor/HTMLEditor/index.js',
-  './src/editor/HTMLEditor/core.js',
-  './src/editor/HTMLEditor/ai.js',
-  './src/editor/HTMLEditor/comments.js',
-  './src/editor/HTMLEditor/blocks.js',
-  './src/editor/HTMLEditor/auth.js',
-  './src/editor/HTMLEditor/folders.js',
-  './src/editor/HTMLEditor/notes.js',
-  './src/editor/HTMLEditor/files.js',
-  './src/editor/HTMLEditor/media.js',
-  './src/editor/HTMLEditor/history.js',
-  './src/editor/HTMLEditor/api.js',
-  './src/state/currentUser.js',
-  './src/state/globalDevices.js',
-  './src/utils/index.js',
-  './src/pages/auth.js',
-  './icons/notai-192x192.png',
-  './icons/notai-512x512.png',
+  '/',
+  '/index.html',
+  '/auth.html',
+  '/styles.css',
+  '/src/editor/HTMLEditor/constants.js',
+  '/src/config.js',
+  '/src/main.js',
+  '/src/editor/HTMLEditor/index.js',
+  '/src/editor/HTMLEditor/core.js',
+  '/src/editor/HTMLEditor/ai.js',
+  '/src/editor/HTMLEditor/comments.js',
+  '/src/editor/HTMLEditor/blocks.js',
+  '/src/editor/HTMLEditor/auth.js',
+  '/src/editor/HTMLEditor/folders.js',
+  '/src/editor/HTMLEditor/notes.js',
+  '/src/editor/HTMLEditor/files.js',
+  '/src/editor/HTMLEditor/media.js',
+  '/src/editor/HTMLEditor/history.js',
+  '/src/editor/HTMLEditor/api.js',
+  '/src/state/currentUser.js',
+  '/src/state/globalDevices.js',
+  '/src/utils/index.js',
+  '/src/pages/auth.js',
+  '/icons/notai-192x192.png',
+  '/icons/notai-512x512.png',
 ];
 
 // Install: pre-cache core, take control immediately
@@ -62,15 +62,26 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
+          if (res.status === 404) {
+            return caches
+              .match('/index.html')
+              .then((cachedIndex) => cachedIndex || caches.match('/auth.html'))
+              .then((cachedFallback) => cachedFallback || res);
+          }
           // Optionally update cache in background
           const copy = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
           return res;
         })
         .catch(() =>
-          caches.match(req).then((cached) =>
-            cached || caches.match('./index.html') || caches.match('./auth.html'),
-          ),
+          caches.match(req).then((cached) => {
+            if (cached) {
+              return cached;
+            }
+            return caches
+              .match('/index.html')
+              .then((cachedIndex) => cachedIndex || caches.match('/auth.html'));
+          }),
         ),
     );
     return;
@@ -78,6 +89,11 @@ self.addEventListener('fetch', (event) => {
 
   // Other requests: cache-first, fall back to network
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req)),
+    caches.match(req).then((cached) => {
+      if (cached) {
+        return cached;
+      }
+      return fetch(req).catch(() => new Response('Offline', { status: 503 }));
+    }),
   );
 });
