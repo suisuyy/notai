@@ -248,7 +248,12 @@ const mixin = {
   },
 
   async handleAIAction(action, text, includeCurrentBlockMedia = false, options = {}) {
-    const { skipContext = false } = options;
+    const {
+      skipContext = false,
+      inputAudioBase64 = null,
+      inputAudioFormat = 'wav',
+      ignoreCurrentBlockAudio = false,
+    } = options;
 
     this.lastUpdated = utils.getCurrentTimeString();
     //log last updated time
@@ -400,12 +405,15 @@ const mixin = {
     // Check for image in selection or current block
     let imageUrl = null;
     let audioUrl = null;
+    let audioFormat = inputAudioFormat || 'wav';
     let videoUrl = null;
     let selectedContent = range.cloneContents();
     let imgElement = selectedContent?.querySelector('img') || (includeCurrentBlockMedia ? currentBlock.querySelector('img') : null);
 
     //check for audio and video
-    let audioElement = selectedContent?.querySelector('audio') || (includeCurrentBlockMedia ? currentBlock.querySelector('audio') : null);
+    let audioElement = ignoreCurrentBlockAudio
+      ? null
+      : (selectedContent?.querySelector('audio') || (includeCurrentBlockMedia ? currentBlock.querySelector('audio') : null));
     let videoElement = selectedContent?.querySelector('video') || (includeCurrentBlockMedia ? currentBlock.querySelector('video') : null);
 
 
@@ -430,13 +438,23 @@ const mixin = {
       }
     }
 
-    if (audioElement && audioElement.src) {
+    if (inputAudioBase64) {
+      audioUrl = inputAudioBase64;
+      audioFormat = inputAudioFormat || 'wav';
+    }
+
+    if (!inputAudioBase64 && audioElement && audioElement.src) {
       if (this.aiSettings.compitable_mode) {
         audioUrl = await fetchAndConvertToBase64(audioElement.src);
         console.log("Base64 audio:", audioUrl);
       }
       else {
         audioUrl = audioElement.src;
+      }
+
+      const audioSrc = audioElement.src || '';
+      if (audioSrc.startsWith('data:audio/wav')) {
+        audioFormat = 'wav';
       }
 
     }
@@ -476,7 +494,7 @@ const mixin = {
         type: "input_audio",
         input_audio: {
           data: audioUrl,
-          format: 'mpeg'
+          format: audioFormat
         }
       }] : []),
       ...(videoUrl ? [{
@@ -565,6 +583,11 @@ const mixin = {
         top_p: 1,
         stream: this.aiSettings.else.enable_stream,
       };
+
+      if (Array.isArray(content) && content.some((item) => item?.type === 'input_audio')) {
+        requestBody.modalities = ['text', 'audio'];
+        requestBody.audio = { voice: 'alloy', format: 'wav' };
+      }
 
       // If model has additional configuration in 'else' field, parse and merge it
       let additionalConfig = {};
@@ -867,13 +890,29 @@ const mixin = {
 
   },
 
-  async handleQuickAsk() {
+  async handleQuickAsk(options = {}) {
+    const {
+      inputAudioBase64 = null,
+      inputAudioFormat = 'wav',
+      textPrompt = 'What is in this recording?',
+      ignoreCurrentBlockAudio = false,
+    } = options;
     const context = this.getBlockContext();
     if (!context) {
       alert('Please select or create a block first');
       return;
     }
-    this.handleAIAction('ask', 'this is our chat history,when generate image, dont include text from history unless needed :\n <history>' + context.contextText + '\n</history>\n\n\n' + context.currentText, true, { skipContext: true });
+
+    const promptText = inputAudioBase64
+      ? `${textPrompt}\n\nthis is our chat history,when generate image, dont include text from history unless needed :\n <history>${context.contextText}\n</history>\n\n\n${context.currentText}`
+      : 'this is our chat history,when generate image, dont include text from history unless needed :\n <history>' + context.contextText + '\n</history>\n\n\n' + context.currentText;
+
+    return this.handleAIAction('ask', promptText, true, {
+      skipContext: true,
+      inputAudioBase64,
+      inputAudioFormat,
+      ignoreCurrentBlockAudio,
+    });
   },
 
   setupAISettings() {

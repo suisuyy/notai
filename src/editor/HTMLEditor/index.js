@@ -132,6 +132,23 @@ class HTMLEditor {
     //set video record type to video/this.audioRecordExt
     this.videoRecordType = 'video/' + this.audioRecordExt;
     this.videoRecordExt = this.audioRecordExt;
+    this.quickAskVoiceMinDurationMs = 2000;
+    this.quickAskVoiceState = {
+      active: false,
+      busy: false,
+      locked: false,
+      pointerId: null,
+      pressStartedAt: 0,
+      recordingStartedAt: 0,
+      recorder: null,
+      stream: null,
+      chunks: [],
+      timerIntervalId: 0,
+      startPromise: null,
+      releaseRequested: null,
+      completing: null,
+      mimeType: '',
+    };
 
     this.checkAuthAndLoadNotes();
     this.loadFolders();

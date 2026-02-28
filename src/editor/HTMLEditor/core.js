@@ -1136,18 +1136,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
       // Quick Ask button 
       if (quickAskBtn) {
-        quickAskBtn.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          //set quickaskbtn disabled and enable it after 5 seconds
-          quickAskBtn.disabled = true;
-          quickAskBtn.style.backgroundColor = '#ccc';
-          setTimeout(() => {
-            quickAskBtn.disabled = false;
-            quickAskBtn.style.backgroundColor = '';
-          }, 5000);
-
-          this.handleQuickAsk();
-        });
+        this.setupQuickAskVoiceControls(quickAskBtn);
       }
 
       // Sidebar toggle

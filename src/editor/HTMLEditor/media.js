@@ -259,6 +259,580 @@ const mixin = {
       return null;
     }
   },
+
+  setupQuickAskVoiceControls(quickAskBtn) {
+    if (this._quickAskVoiceControlsBound || !quickAskBtn) {
+      return;
+    }
+
+    this.quickAskButton = quickAskBtn;
+    this.quickAskVoicePanel = document.getElementById('quickAskVoicePanel');
+    this.quickAskVoiceTitle = document.getElementById('quickAskVoiceTitle');
+    this.quickAskVoiceHint = document.getElementById('quickAskVoiceHint');
+    this.quickAskVoiceTimer = document.getElementById('quickAskVoiceTimer');
+    this.quickAskVoiceLockZone = document.getElementById('quickAskVoiceLockZone');
+    this.quickAskVoiceLockLabel = document.getElementById('quickAskVoiceLockLabel');
+    this.quickAskVoiceActions = document.getElementById('quickAskVoiceActions');
+    this.quickAskVoiceSendBtn = document.getElementById('quickAskVoiceSendBtn');
+    this.quickAskVoiceCancelBtn = document.getElementById('quickAskVoiceCancelBtn');
+
+    quickAskBtn.addEventListener('pointerdown', (event) => {
+      this.handleQuickAskVoicePointerDown(event);
+    });
+
+    window.addEventListener('pointermove', (event) => {
+      this.handleQuickAskVoicePointerMove(event);
+    });
+
+    window.addEventListener('pointerup', (event) => {
+      this.handleQuickAskVoicePointerUp(event);
+    });
+
+    window.addEventListener('pointercancel', (event) => {
+      this.handleQuickAskVoicePointerCancel(event);
+    });
+
+    this.quickAskVoiceSendBtn?.addEventListener('click', async () => {
+      await this.completeQuickAskVoiceRecording({
+        send: true,
+        includeAudio: this.shouldIncludeQuickAskAudio(),
+      });
+    });
+
+    this.quickAskVoiceCancelBtn?.addEventListener('click', async () => {
+      await this.completeQuickAskVoiceRecording({
+        send: false,
+        includeAudio: false,
+        discard: true,
+      });
+    });
+
+    this._quickAskVoiceControlsBound = true;
+  },
+
+  handleQuickAskVoicePointerDown(event) {
+    if (!this.quickAskButton || event.button !== 0) {
+      return;
+    }
+
+    const state = this.quickAskVoiceState;
+    if (state.busy || state.locked) {
+      return;
+    }
+
+    event.preventDefault();
+    state.active = true;
+    state.busy = true;
+    state.locked = false;
+    state.pointerId = event.pointerId;
+    state.pressStartedAt = Date.now();
+    state.recordingStartedAt = 0;
+    state.releaseRequested = null;
+    state.completing = null;
+    state.chunks = [];
+    state.mimeType = '';
+
+    try {
+      this.quickAskButton.setPointerCapture?.(event.pointerId);
+    } catch (_) { }
+
+    this.setQuickAskButtonMode('recording');
+    this.showQuickAskVoicePanelState({
+      locked: false,
+      title: 'Starting recording...',
+      hint: 'Release to send. Slide up to lock.',
+      lockLabel: 'Slide here for hands-free',
+      timerText: '0:00',
+      lockActive: false,
+    });
+
+    state.startPromise = this.startQuickAskVoiceRecording();
+  },
+
+  handleQuickAskVoicePointerMove(event) {
+    const state = this.quickAskVoiceState;
+    if (!state.active || state.locked || event.pointerId !== state.pointerId || !this.quickAskVoiceLockZone) {
+      return;
+    }
+
+    const rect = this.quickAskVoiceLockZone.getBoundingClientRect();
+    const isInside =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+
+    if (isInside) {
+      this.lockQuickAskVoiceRecording();
+      return;
+    }
+
+    this.quickAskVoiceLockZone.classList.remove('active');
+  },
+
+  handleQuickAskVoicePointerUp(event) {
+    const state = this.quickAskVoiceState;
+    if (!state.active || event.pointerId !== state.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    this.releaseQuickAskVoicePointerCapture();
+
+    if (state.locked) {
+      state.active = false;
+      state.pointerId = null;
+      return;
+    }
+
+    this.completeQuickAskVoiceRecording({
+      send: true,
+      includeAudio: this.shouldIncludeQuickAskAudio(),
+    });
+  },
+
+  handleQuickAskVoicePointerCancel(event) {
+    const state = this.quickAskVoiceState;
+    if (!state.active || event.pointerId !== state.pointerId) {
+      return;
+    }
+
+    this.releaseQuickAskVoicePointerCapture();
+    this.completeQuickAskVoiceRecording({
+      send: false,
+      includeAudio: false,
+      discard: true,
+    });
+  },
+
+  async startQuickAskVoiceRecording() {
+    const state = this.quickAskVoiceState;
+
+    try {
+      const constraints = this.getQuickAskAudioConstraints();
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      if (!state.busy) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const recorderOptions = this.audioRecordType ? { mimeType: this.audioRecordType } : undefined;
+      const mediaRecorder = recorderOptions
+        ? new MediaRecorder(stream, recorderOptions)
+        : new MediaRecorder(stream);
+
+      state.stream = stream;
+      state.recorder = mediaRecorder;
+      state.mimeType = mediaRecorder.mimeType || this.audioRecordType || 'audio/webm';
+      state.chunks = [];
+      state.recordingStartedAt = Date.now();
+
+      mediaRecorder.addEventListener('dataavailable', (event) => {
+        if (event.data && event.data.size > 0) {
+          state.chunks.push(event.data);
+        }
+      });
+
+      mediaRecorder.start(250);
+      this.startQuickAskVoiceTimer();
+
+      if (state.locked) {
+        this.showQuickAskVoicePanelState({
+          locked: true,
+          title: 'Recording locked',
+          hint: 'Tap send when you are done.',
+          lockLabel: 'Hands-free recording enabled',
+        });
+      } else {
+        this.showQuickAskVoicePanelState({
+          locked: false,
+          title: 'Recording...',
+          hint: 'Release to send. Slide up to lock.',
+          lockLabel: 'Slide here for hands-free',
+        });
+      }
+
+      if (state.releaseRequested) {
+        const pending = state.releaseRequested;
+        state.releaseRequested = null;
+        await this.completeQuickAskVoiceRecording(pending);
+      }
+    } catch (error) {
+      console.error('Error starting quick ask voice recording:', error);
+      this.resetQuickAskVoiceUI();
+      this.showToast('Error accessing microphone');
+    } finally {
+      state.startPromise = null;
+    }
+  },
+
+  startQuickAskVoiceTimer() {
+    const state = this.quickAskVoiceState;
+    clearInterval(state.timerIntervalId);
+    const tick = () => {
+      if (!this.quickAskVoiceTimer) {
+        return;
+      }
+      const startedAt = state.pressStartedAt || Date.now();
+      const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      const minutes = Math.floor(elapsed / 60).toString();
+      const seconds = (elapsed % 60).toString().padStart(2, '0');
+      this.quickAskVoiceTimer.textContent = `${minutes}:${seconds}`;
+    };
+    tick();
+    state.timerIntervalId = setInterval(tick, 250);
+  },
+
+  lockQuickAskVoiceRecording() {
+    const state = this.quickAskVoiceState;
+    if (!state.active || state.locked) {
+      return;
+    }
+
+    state.locked = true;
+    state.active = false;
+    state.pointerId = null;
+    this.releaseQuickAskVoicePointerCapture();
+    this.quickAskVoiceLockZone?.classList.add('active');
+    this.setQuickAskButtonMode('locked');
+    this.showQuickAskVoicePanelState({
+      locked: true,
+      title: state.recordingStartedAt ? 'Recording locked' : 'Locking recording...',
+      hint: 'Tap send when you are done.',
+      lockLabel: 'Hands-free recording enabled',
+      lockActive: true,
+    });
+  },
+
+  shouldIncludeQuickAskAudio() {
+    const state = this.quickAskVoiceState;
+    const startedAt = state.pressStartedAt || state.recordingStartedAt;
+    if (!startedAt) {
+      return false;
+    }
+    return (Date.now() - startedAt) >= this.quickAskVoiceMinDurationMs;
+  },
+
+  async completeQuickAskVoiceRecording(options = {}) {
+    const state = this.quickAskVoiceState;
+    const { send = true, includeAudio = true, discard = false } = options;
+
+    state.active = false;
+    state.pointerId = null;
+    this.releaseQuickAskVoicePointerCapture();
+
+    if (state.startPromise && !state.recorder) {
+      state.releaseRequested = { send, includeAudio, discard };
+      await state.startPromise;
+      return;
+    }
+
+    if (state.completing) {
+      return state.completing;
+    }
+
+    state.completing = (async () => {
+      let recordedBlob = null;
+      let inputAudioBase64 = null;
+
+      try {
+        clearInterval(state.timerIntervalId);
+        state.timerIntervalId = 0;
+
+        if (state.recorder && state.recorder.state !== 'inactive') {
+          recordedBlob = await new Promise((resolve) => {
+            const finalize = () => {
+              const blob = state.chunks.length
+                ? new Blob(state.chunks, { type: state.mimeType || this.audioRecordType || 'audio/webm' })
+                : null;
+              resolve(blob);
+            };
+
+            state.recorder.addEventListener('stop', finalize, { once: true });
+            state.recorder.stop();
+          });
+        } else if (state.chunks.length) {
+          recordedBlob = new Blob(state.chunks, { type: state.mimeType || this.audioRecordType || 'audio/webm' });
+        }
+
+        state.stream?.getTracks?.()?.forEach((track) => track.stop());
+
+        if (send && !discard && recordedBlob?.size) {
+          try {
+            inputAudioBase64 = await this.convertAudioBlobToWavBase64(recordedBlob);
+          } catch (error) {
+            console.error('Error converting recorded audio to wav:', error);
+            this.showToast('Voice recorded, but wav conversion failed.');
+          }
+        }
+      } finally {
+        this.resetQuickAskVoiceUI();
+      }
+
+      if (!send || discard) {
+        return;
+      }
+
+      if (inputAudioBase64) {
+        this.insertQuickAskAudioIntoCurrentBlock(inputAudioBase64, 'wav');
+      }
+
+      if (inputAudioBase64) {
+        await this.handleQuickAsk({
+          inputAudioBase64: includeAudio ? inputAudioBase64 : null,
+          inputAudioFormat: 'wav',
+          textPrompt: 'What is in this recording?',
+          ignoreCurrentBlockAudio: !includeAudio,
+        });
+        return;
+      }
+
+      await this.handleQuickAsk({
+        ignoreCurrentBlockAudio: true,
+      });
+    })();
+
+    try {
+      await state.completing;
+    } finally {
+      state.completing = null;
+    }
+  },
+
+  getQuickAskAudioConstraints() {
+    const audioSelect = document.getElementById('audioDevices');
+    const selectedDeviceId = audioSelect?.value;
+    return {
+      audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+    };
+  },
+
+  showQuickAskVoicePanelState(options = {}) {
+    const {
+      locked = false,
+      title,
+      hint,
+      lockLabel,
+      timerText,
+      lockActive = false,
+    } = options;
+
+    if (!this.quickAskVoicePanel) {
+      return;
+    }
+
+    this.quickAskVoicePanel.classList.add('visible');
+    this.quickAskVoicePanel.classList.toggle('locked', locked);
+    this.quickAskVoicePanel.setAttribute('aria-hidden', 'false');
+    this.quickAskVoiceTitle.textContent = title || this.quickAskVoiceTitle.textContent;
+    this.quickAskVoiceHint.textContent = hint || this.quickAskVoiceHint.textContent;
+    this.quickAskVoiceLockLabel.textContent = lockLabel || this.quickAskVoiceLockLabel.textContent;
+    if (timerText) {
+      this.quickAskVoiceTimer.textContent = timerText;
+    }
+    this.quickAskVoiceLockZone?.classList.toggle('active', lockActive);
+  },
+
+  setQuickAskButtonMode(mode = 'idle') {
+    if (!this.quickAskButton) {
+      return;
+    }
+    this.quickAskButton.classList.toggle('is-recording', mode === 'recording');
+    this.quickAskButton.classList.toggle('is-locked', mode === 'locked');
+    this.quickAskButton.innerHTML = mode === 'idle'
+      ? '<i class="fas fa-paper-plane"></i>'
+      : '<i class="fas fa-microphone"></i>';
+  },
+
+  resetQuickAskVoiceUI() {
+    const state = this.quickAskVoiceState;
+    clearInterval(state.timerIntervalId);
+
+    state.active = false;
+    state.busy = false;
+    state.locked = false;
+    state.pointerId = null;
+    state.pressStartedAt = 0;
+    state.recordingStartedAt = 0;
+    state.recorder = null;
+    state.stream = null;
+    state.chunks = [];
+    state.timerIntervalId = 0;
+    state.releaseRequested = null;
+    state.mimeType = '';
+
+    this.quickAskVoicePanel?.classList.remove('visible', 'locked');
+    this.quickAskVoicePanel?.setAttribute('aria-hidden', 'true');
+    this.quickAskVoiceLockZone?.classList.remove('active');
+    if (this.quickAskVoiceTitle) {
+      this.quickAskVoiceTitle.textContent = 'Recording...';
+    }
+    if (this.quickAskVoiceHint) {
+      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock.';
+    }
+    if (this.quickAskVoiceLockLabel) {
+      this.quickAskVoiceLockLabel.textContent = 'Slide here for hands-free';
+    }
+    if (this.quickAskVoiceTimer) {
+      this.quickAskVoiceTimer.textContent = '0:00';
+    }
+
+    this.setQuickAskButtonMode('idle');
+  },
+
+  releaseQuickAskVoicePointerCapture() {
+    const pointerId = this.quickAskVoiceState?.pointerId;
+    if (!this.quickAskButton || pointerId === null || pointerId === undefined) {
+      return;
+    }
+
+    try {
+      if (this.quickAskButton.hasPointerCapture?.(pointerId)) {
+        this.quickAskButton.releasePointerCapture(pointerId);
+      }
+    } catch (_) { }
+  },
+
+  async convertAudioBlobToWavBase64(blob) {
+    const audioBuffer = await this.decodeRecordedAudio(blob);
+    const wavArrayBuffer = this.audioBufferToWav(audioBuffer);
+    return this.arrayBufferToBase64(wavArrayBuffer);
+  },
+
+  async decodeRecordedAudio(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    } finally {
+      await audioContext.close();
+    }
+  },
+
+  audioBufferToWav(audioBuffer) {
+    const channelCount = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const samples = audioBuffer.length;
+    const bytesPerSample = 2;
+    const blockAlign = channelCount * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + samples * blockAlign);
+    const view = new DataView(buffer);
+
+    this.writeWavString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples * blockAlign, true);
+    this.writeWavString(view, 8, 'WAVE');
+    this.writeWavString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, channelCount, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    this.writeWavString(view, 36, 'data');
+    view.setUint32(40, samples * blockAlign, true);
+
+    let offset = 44;
+    const channelData = [];
+    for (let channel = 0; channel < channelCount; channel += 1) {
+      channelData.push(audioBuffer.getChannelData(channel));
+    }
+
+    for (let index = 0; index < samples; index += 1) {
+      for (let channel = 0; channel < channelCount; channel += 1) {
+        const sample = Math.max(-1, Math.min(1, channelData[channel][index] || 0));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += bytesPerSample;
+      }
+    }
+
+    return buffer;
+  },
+
+  writeWavString(view, offset, value) {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  },
+
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      const chunk = bytes.subarray(index, index + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
+  },
+
+  insertQuickAskAudioIntoCurrentBlock(base64Audio, format = 'wav') {
+    if (!base64Audio || !this.editor) {
+      return null;
+    }
+
+    const dataUrl = `data:audio/${format};base64,${base64Audio}`;
+    const selection = window.getSelection();
+    const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
+
+    let block = null;
+    if (anchorNode) {
+      const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement;
+      const candidate = anchorElement?.closest?.('.block');
+      if (candidate && this.editor.contains(candidate)) {
+        block = candidate;
+      }
+    }
+
+    if (!block && this.currentBlock && this.editor.contains(this.currentBlock)) {
+      block = this.currentBlock;
+    }
+
+    if (!block) {
+      block = this.addNewBlock(true, anchorNode, anchorRange);
+    }
+
+    if (!block) {
+      return null;
+    }
+
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.src = dataUrl;
+    audio.setAttribute('type', `audio/${format}`);
+
+    const hasMeaningfulContent =
+      !!block.querySelector('img, audio, video, iframe, table, pre, code') ||
+      !!block.textContent.trim();
+
+    if (!hasMeaningfulContent) {
+      block.innerHTML = '';
+    } else {
+      const lastChild = block.lastChild;
+      if (!(lastChild && lastChild.nodeName === 'BR')) {
+        block.appendChild(document.createElement('br'));
+      }
+    }
+
+    block.appendChild(audio);
+    block.appendChild(document.createElement('br'));
+
+    this.currentBlock = block;
+    this.showBlockControls?.(block);
+    this.delayedSaveNote?.();
+
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(block);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    } catch (_) { }
+
+    return audio;
+  },
 };
 
 export default mixin;
