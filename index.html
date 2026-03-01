@@ -29,42 +29,42 @@
 <body>
     <div class="editor-container">
 
-		        <div class="sidebar hidden" >
-		            <div class="sidebar-header">
-		                <div class="auth-buttons">
-		                    <button id="logoutBtn" style="display: none;" onclick="window.editor.logout()"><i
-		                            class="fas fa-sign-out-alt"></i> Logout</button>
-		                </div>
-		            </div>
+        <div class="sidebar hidden">
+            <div class="sidebar-header">
+                <div class="auth-buttons">
+                    <button id="logoutBtn" style="display: none;" onclick="window.editor.logout()"><i
+                            class="fas fa-sign-out-alt"></i> Logout</button>
+                </div>
+            </div>
 
-		            <div class="sidebar-section toc-section">
-		                <button id="toggleTocBtn" class="sidebar-btn">
-		                    <i class="fas fa-list"></i> Table of Contents
-		                </button>
-		                <div id="tocList" style="display: none;"></div>
-		            </div>
+            <div class="sidebar-section toc-section">
+                <button id="toggleTocBtn" class="sidebar-btn">
+                    <i class="fas fa-list"></i> Table of Contents
+                </button>
+                <div id="tocList" style="display: none;"></div>
+            </div>
 
-		            <div class="sidebar-section folders-section">
-		                <div class="sidebar-section-header-row">
-		                    <div class="sidebar-section-title">
-		                        <i class="fas fa-folder"></i> Folders
-		                    </div>
-		                    <button id="newFolderBtn" class="sidebar-action-btn" title="New folder">
-		                        <i class="fas fa-plus"></i>
-		                    </button>
-		                </div>
-		                <div class="folder-input-container" style="display: none;">
-		                    <input type="text" id="newFolderInput" placeholder="Folder name">
-		                    <button id="createFolderBtn" title="Create folder"><i class="fas fa-check"></i></button>
-		                    <button id="cancelFolderBtn" title="Cancel"><i class="fas fa-times"></i></button>
-		                </div>
-		                <div id="folders"></div>
-		                <div id="pagesList"></div>
-		            </div>
+            <div class="sidebar-section folders-section">
+                <div class="sidebar-section-header-row">
+                    <div class="sidebar-section-title">
+                        <i class="fas fa-folder"></i> Folders
+                    </div>
+                    <button id="newFolderBtn" class="sidebar-action-btn" title="New folder">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+                <div class="folder-input-container" style="display: none;">
+                    <input type="text" id="newFolderInput" placeholder="Folder name">
+                    <button id="createFolderBtn" title="Create folder"><i class="fas fa-check"></i></button>
+                    <button id="cancelFolderBtn" title="Cancel"><i class="fas fa-times"></i></button>
+                </div>
+                <div id="folders"></div>
+                <div id="pagesList"></div>
+            </div>
 
-		            <div style="height: 200px;"></div>
+            <div style="height: 200px;"></div>
 
-		        </div>
+        </div>
         <div class="main-content">
             <div class="toolbar">
                 <div class="formatting-tools">
@@ -90,8 +90,10 @@
                         </button>
                         <div class="search-container hidden" id="globalSearchContainer">
                             <div class="search-input-group">
-                                <input type="text" id="globalSearchInput" placeholder="Search this note, all notes, folders" autocomplete="off">
-                                <button id="globalSearchBtn" title="Search workspace"><i class="fas fa-search"></i></button>
+                                <input type="text" id="globalSearchInput"
+                                    placeholder="Search this note, all notes, folders" autocomplete="off">
+                                <button id="globalSearchBtn" title="Search workspace"><i
+                                        class="fas fa-search"></i></button>
                                 <button id="searchClearBtn" title="Clear search"><i class="fas fa-times"></i></button>
                             </div>
                             <div id="searchResults" class="search-results hidden">
@@ -101,11 +103,13 @@
                                 </div>
                                 <div class="search-section" data-section="current">
                                     <div class="search-section-title">Current note</div>
-                                    <div id="searchResultsCurrent" class="search-list search-empty">Type above to search inside the current note.</div>
+                                    <div id="searchResultsCurrent" class="search-list search-empty">Type above to search
+                                        inside the current note.</div>
                                 </div>
                                 <div class="search-section" data-section="workspace">
                                     <div class="search-section-title">Notes &amp; folders</div>
-                                    <div id="searchResultsWorkspace" class="search-list search-empty">Search all folder names and note contents.</div>
+                                    <div id="searchResultsWorkspace" class="search-list search-empty">Search all folder
+                                        names and note contents.</div>
                                 </div>
                             </div>
                         </div>
@@ -226,18 +230,18 @@
                     </div>
 
                     <div class="dropdown">
-                            <button class="dropbtn"><i class="fas fa-plus"></i> </button>
-                            <div class="dropdown-content">
-                                <button id="undoBtn"><i class="fas fa-undo"></i> Undo</button>
-                                <button id="redoBtn"><i class="fas fa-redo"></i> Redo</button>
-                                <button id="uploadFileBtn"><i class="fas fa-upload"></i> Upload File</button>
-                                <button data-command="createLink"><i class="fas fa-link"></i> Link</button>
-                                <button id="insertIframe"><i class="fas fa-window-maximize"></i> Embed webpage</button>
-                                <button id="addComment"><i class="fas fa-comment"></i> Add Comment</button>
-                                <button id="addBlockBtn"><i class="fas fa-layer-group"></i> Insert Block</button>
-                                <button id="viewSourceBtn"><i class="fas fa-code"></i> Source View</button>
-                            </div>
+                        <button class="dropbtn"><i class="fas fa-plus"></i> </button>
+                        <div class="dropdown-content">
+                            <button id="undoBtn"><i class="fas fa-undo"></i> Undo</button>
+                            <button id="redoBtn"><i class="fas fa-redo"></i> Redo</button>
+                            <button id="uploadFileBtn"><i class="fas fa-upload"></i> Upload File</button>
+                            <button data-command="createLink"><i class="fas fa-link"></i> Link</button>
+                            <button id="insertIframe"><i class="fas fa-window-maximize"></i> Embed webpage</button>
+                            <button id="addComment"><i class="fas fa-comment"></i> Add Comment</button>
+                            <button id="addBlockBtn"><i class="fas fa-layer-group"></i> Insert Block</button>
+                            <button id="viewSourceBtn"><i class="fas fa-code"></i> Source View</button>
                         </div>
+                    </div>
                     <!-- Comment tooltip -->
                     <div id="commentTooltip" class="comment-tooltip" style="display: none;">
                         <div class="tooltip-header">
@@ -312,7 +316,8 @@
                             <input type="checkbox" id="enableSystemPromptCheckbox" checked>
                             System Prompt
                         </label>
-                        <label class="ai-option-toggle" title="Send text before current cursor as context in AI requests.">
+                        <label class="ai-option-toggle"
+                            title="Send text before current cursor as context in AI requests.">
                             <input type="checkbox" id="enableContextCheckbox" checked>
                             Context
                         </label>
@@ -335,7 +340,10 @@
                 <div id="quickAskVoiceTitle" class="quick-ask-voice-title">Recording...</div>
                 <div id="quickAskVoiceHint" class="quick-ask-voice-hint">Release to send. Slide up to lock.</div>
             </div>
-            <div id="quickAskVoiceTimer" class="quick-ask-voice-timer">0:00</div>
+            <div class="quick-ask-voice-meta">
+                <div id="quickAskVoiceFormat" class="quick-ask-voice-format">Format: -</div>
+                <div id="quickAskVoiceTimer" class="quick-ask-voice-timer">0:00</div>
+            </div>
         </div>
         <div id="quickAskVoiceLockZone" class="quick-ask-voice-lock-zone">
             <i class="fas fa-lock"></i>
@@ -397,7 +405,7 @@
                 <button class="close upload-container-btn">Close</button>
             </div>
             <div class="modal-body">
-                
+
 
                 <div class="media-capture-controls">
 
@@ -476,7 +484,8 @@
             </div>
         </div>
     </div>
-    <div id="aiRequestDetailsModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="aiRequestDetailsTitle">
+    <div id="aiRequestDetailsModal" class="modal" aria-hidden="true" role="dialog"
+        aria-labelledby="aiRequestDetailsTitle">
         <div class="modal-content">
             <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
                 <h3 id="aiRequestDetailsTitle" style="margin:0;">AI Request Details</h3>
@@ -494,12 +503,12 @@
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js').then(registration => {
-                    console.log('Service Worker registered with scope:', registration.scope);
-                }).catch(error => {
-                    console.error('Service Worker registration failed:', error);
-                });
+                //           navigator.serviceWorker.register('/service-worker.js').then(registration => {
+                console.log('Service Worker registered with scope:', registration.scope);
+            }).catch(error => {
+                console.error('Service Worker registration failed:', error);
             });
+        });
         }
     </script>
 </body>

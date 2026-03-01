@@ -1,6 +1,121 @@
 import globalDevices from '../../state/globalDevices.js';
 
 const mixin = {
+  resolvePreferredAudioRecordingConfig() {
+    const candidates = [
+      { mimeType: 'audio/mp4;codecs=mp4a.40.2', fileExt: 'm4a', formatLabel: 'M4A', inputAudioFormat: 'm4a', audioBitsPerSecond: 64000 },
+      { mimeType: 'audio/mp4', fileExt: 'm4a', formatLabel: 'M4A', inputAudioFormat: 'm4a', audioBitsPerSecond: 64000 },
+      { mimeType: 'audio/wav', fileExt: 'wav', formatLabel: 'WAV', inputAudioFormat: 'wav' },
+      { mimeType: 'audio/webm', fileExt: 'webm', formatLabel: 'WEBM', inputAudioFormat: 'webm' },
+    ];
+    const selected = candidates.find((candidate) => {
+      if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+        return candidate.mimeType === 'audio/webm';
+      }
+      return MediaRecorder.isTypeSupported(candidate.mimeType);
+    }) || candidates[candidates.length - 1];
+
+    return {
+      mimeType: selected.mimeType,
+      fileExt: selected.fileExt,
+      formatLabel: selected.formatLabel,
+      inputAudioFormat: selected.inputAudioFormat,
+      recorderOptions: {
+        mimeType: selected.mimeType,
+        ...(selected.audioBitsPerSecond ? { audioBitsPerSecond: selected.audioBitsPerSecond } : {}),
+      },
+      streamConstraints: {
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 24000 },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    };
+  },
+
+  resolvePreferredVideoRecordingConfig() {
+    const candidates = [
+      { mimeType: 'video/webm;codecs=vp9,opus', fileExt: 'webm' },
+      { mimeType: 'video/webm;codecs=vp8,opus', fileExt: 'webm' },
+      { mimeType: 'video/webm', fileExt: 'webm' },
+      { mimeType: 'video/mp4', fileExt: 'mp4' },
+    ];
+    const selected = candidates.find((candidate) => {
+      if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+        return candidate.mimeType === 'video/webm';
+      }
+      return MediaRecorder.isTypeSupported(candidate.mimeType);
+    }) || candidates[2];
+
+    return {
+      mimeType: selected.mimeType,
+      fileExt: selected.fileExt,
+    };
+  },
+
+  getAudioRecordingConstraints(audioDeviceId = null) {
+    return {
+      audio: {
+        ...(audioDeviceId ? { deviceId: { exact: audioDeviceId } } : {}),
+        ...(this.audioStreamConstraints || {}),
+      }
+    };
+  },
+
+  normalizeAudioRecordingMetadata(mimeType = '', fallbackMimeType = '') {
+    const resolvedMimeType = (mimeType || fallbackMimeType || this.audioRecordType || 'audio/webm').toLowerCase();
+    if (resolvedMimeType.includes('mp4')) {
+      return {
+        mimeType: resolvedMimeType.startsWith('video/') ? 'video/mp4' : 'audio/mp4',
+        formatLabel: 'M4A',
+        inputAudioFormat: 'm4a',
+        fileExt: 'm4a',
+      };
+    }
+    if (resolvedMimeType.includes('wav')) {
+      return {
+        mimeType: 'audio/wav',
+        formatLabel: 'WAV',
+        inputAudioFormat: 'wav',
+        fileExt: 'wav',
+      };
+    }
+    return {
+      mimeType: 'audio/webm',
+      formatLabel: 'WEBM',
+      inputAudioFormat: 'webm',
+      fileExt: 'webm',
+    };
+  },
+
+  async createAudioRecorder(stream) {
+    const primaryOptions = this.audioRecordOptions?.mimeType
+      ? { ...this.audioRecordOptions }
+      : null;
+    let mediaRecorder = null;
+
+    if (primaryOptions) {
+      try {
+        mediaRecorder = new MediaRecorder(stream, primaryOptions);
+      } catch (error) {
+        console.warn('Primary audio recorder creation failed, retrying without options:', error);
+      }
+    }
+
+    if (!mediaRecorder) {
+      mediaRecorder = new MediaRecorder(stream);
+    }
+
+    const metadata = this.normalizeAudioRecordingMetadata(mediaRecorder.mimeType, primaryOptions?.mimeType || this.audioRecordType);
+    return {
+      mediaRecorder,
+      metadata,
+      audioBitsPerSecond: mediaRecorder.audioBitsPerSecond || primaryOptions?.audioBitsPerSecond || null,
+      runtimeMimeType: mediaRecorder.mimeType || primaryOptions?.mimeType || this.audioRecordType,
+    };
+  },
+
   async setupMediaDevices() {
     try {
       globalDevices.mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -184,20 +299,21 @@ const mixin = {
         return;
       }
 
-      const constraints = {
-        audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true
-      };
+      const constraints = this.getAudioRecordingConstraints(audioDeviceId);
 
       const audioDevice = document.getElementById('audioDevices').selectedOptions[0].text;
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const mediaRecorder = new MediaRecorder(stream);
+      const { mediaRecorder, metadata, runtimeMimeType } = await this.createAudioRecorder(stream);
       const chunks = [];
       let startTime = Date.now();
       let timerInterval;
+      let durationLabel = '00:00';
 
       mediaRecorder.ondataavailable = e => chunks.push(e.data);
       mediaRecorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: this.audioRecordType });
+        const chunkMimeType = chunks.find((chunk) => chunk?.type)?.type || runtimeMimeType || metadata.mimeType;
+        const runtimeMetadata = this.normalizeAudioRecordingMetadata(chunkMimeType, metadata.mimeType);
+        const blob = new Blob(chunks, { type: chunkMimeType });
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
         clearInterval(timerInterval);
@@ -215,7 +331,8 @@ const mixin = {
         fileInfo.innerHTML = `
           <strong>Recorded Audio</strong><br>
           <strong>Microphone:</strong> ${audioDevice}<br>
-          <strong>Duration:</strong> ${document.getElementById('recordingTime').textContent}<br>
+          <strong>Format:</strong> ${runtimeMetadata.formatLabel}<br>
+          <strong>Duration:</strong> ${durationLabel}<br>
           <strong>Size:</strong> ${this.formatFileSize(blob.size)}
         `;
 
@@ -230,7 +347,7 @@ const mixin = {
         filePreview.appendChild(fileInfo);
 
         // Create file for upload
-        const file = new File([blob], 'recording.' + this.audioRecordExt, { type: this.audioRecordType });
+        const file = new File([blob], 'recording.' + runtimeMetadata.fileExt, { type: chunkMimeType });
         document.getElementById('fileInput').files = new DataTransfer().files;
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(file);
@@ -242,7 +359,8 @@ const mixin = {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
         const seconds = (elapsed % 60).toString().padStart(2, '0');
-        document.getElementById('recordingTime').textContent = `${minutes}:${seconds}`;
+        durationLabel = `${minutes}:${seconds}`;
+        document.getElementById('recordingTime').textContent = durationLabel;
       }, 1000);
 
       mediaRecorder.start();
@@ -269,6 +387,7 @@ const mixin = {
     this.quickAskVoicePanel = document.getElementById('quickAskVoicePanel');
     this.quickAskVoiceTitle = document.getElementById('quickAskVoiceTitle');
     this.quickAskVoiceHint = document.getElementById('quickAskVoiceHint');
+    this.quickAskVoiceFormat = document.getElementById('quickAskVoiceFormat');
     this.quickAskVoiceTimer = document.getElementById('quickAskVoiceTimer');
     this.quickAskVoiceLockZone = document.getElementById('quickAskVoiceLockZone');
     this.quickAskVoiceLockLabel = document.getElementById('quickAskVoiceLockLabel');
@@ -331,6 +450,9 @@ const mixin = {
     state.completing = null;
     state.chunks = [];
     state.mimeType = '';
+    state.formatLabel = this.audioRecordLabel;
+    state.inputAudioFormat = this.audioInputFormat;
+    state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
 
     try {
       this.quickAskButton.setPointerCapture?.(event.pointerId);
@@ -343,6 +465,7 @@ const mixin = {
       hint: 'Release to send. Slide up to lock.',
       lockLabel: 'Slide here for hands-free',
       timerText: '0:00',
+      formatText: 'Format: detecting...',
       lockActive: false,
     });
 
@@ -417,14 +540,14 @@ const mixin = {
         return;
       }
 
-      const recorderOptions = this.audioRecordType ? { mimeType: this.audioRecordType } : undefined;
-      const mediaRecorder = recorderOptions
-        ? new MediaRecorder(stream, recorderOptions)
-        : new MediaRecorder(stream);
+      const { mediaRecorder, metadata, audioBitsPerSecond, runtimeMimeType } = await this.createAudioRecorder(stream);
 
       state.stream = stream;
       state.recorder = mediaRecorder;
-      state.mimeType = mediaRecorder.mimeType || this.audioRecordType || 'audio/webm';
+      state.mimeType = runtimeMimeType || metadata.mimeType;
+      state.formatLabel = metadata.formatLabel;
+      state.inputAudioFormat = metadata.inputAudioFormat;
+      state.audioBitsPerSecond = audioBitsPerSecond;
       state.chunks = [];
       state.recordingStartedAt = Date.now();
 
@@ -443,6 +566,7 @@ const mixin = {
           title: 'Recording locked',
           hint: 'Tap send when you are done.',
           lockLabel: 'Hands-free recording enabled',
+          formatText: `Format: ${metadata.formatLabel}`,
         });
       } else {
         this.showQuickAskVoicePanelState({
@@ -450,6 +574,7 @@ const mixin = {
           title: 'Recording...',
           hint: 'Release to send. Slide up to lock.',
           lockLabel: 'Slide here for hands-free',
+          formatText: `Format: ${metadata.formatLabel}`,
         });
       }
 
@@ -501,6 +626,7 @@ const mixin = {
       title: state.recordingStartedAt ? 'Recording locked' : 'Locking recording...',
       hint: 'Tap send when you are done.',
       lockLabel: 'Hands-free recording enabled',
+      formatText: `Format: ${state.formatLabel || this.audioRecordLabel}`,
       lockActive: true,
     });
   },
@@ -535,6 +661,8 @@ const mixin = {
     state.completing = (async () => {
       let recordedBlob = null;
       let inputAudioBase64 = null;
+      let insertedAudioPayload = null;
+      let aiAudioPayload = null;
 
       try {
         clearInterval(state.timerIntervalId);
@@ -543,8 +671,9 @@ const mixin = {
         if (state.recorder && state.recorder.state !== 'inactive') {
           recordedBlob = await new Promise((resolve) => {
             const finalize = () => {
+              const chunkMimeType = state.chunks.find((chunk) => chunk?.type)?.type || state.mimeType || this.audioRecordType || 'audio/webm';
               const blob = state.chunks.length
-                ? new Blob(state.chunks, { type: state.mimeType || this.audioRecordType || 'audio/webm' })
+                ? new Blob(state.chunks, { type: chunkMimeType })
                 : null;
               resolve(blob);
             };
@@ -553,17 +682,22 @@ const mixin = {
             state.recorder.stop();
           });
         } else if (state.chunks.length) {
-          recordedBlob = new Blob(state.chunks, { type: state.mimeType || this.audioRecordType || 'audio/webm' });
+          const chunkMimeType = state.chunks.find((chunk) => chunk?.type)?.type || state.mimeType || this.audioRecordType || 'audio/webm';
+          recordedBlob = new Blob(state.chunks, { type: chunkMimeType });
         }
 
         state.stream?.getTracks?.()?.forEach((track) => track.stop());
 
         if (send && !discard && recordedBlob?.size) {
           try {
-            inputAudioBase64 = await this.convertAudioBlobToWavBase64(recordedBlob);
+            insertedAudioPayload = await this.prepareRecordedAudioForBlock(recordedBlob, state.mimeType);
+            if (includeAudio) {
+              aiAudioPayload = await this.prepareRecordedAudioForAI(recordedBlob, state.mimeType);
+              inputAudioBase64 = aiAudioPayload?.base64 || null;
+            }
           } catch (error) {
-            console.error('Error converting recorded audio to wav:', error);
-            this.showToast('Voice recorded, but wav conversion failed.');
+            console.error('Error preparing recorded audio:', error);
+            this.showToast('Voice recorded, but audio processing failed.');
           }
         }
       } finally {
@@ -574,15 +708,15 @@ const mixin = {
         return;
       }
 
-      if (inputAudioBase64) {
-        this.insertQuickAskAudioIntoCurrentBlock(inputAudioBase64, 'wav');
+      if (insertedAudioPayload) {
+        this.insertQuickAskAudioIntoCurrentBlock(insertedAudioPayload.base64, insertedAudioPayload);
       }
 
       if (inputAudioBase64) {
         await this.handleQuickAsk({
           inputAudioBase64: includeAudio ? inputAudioBase64 : null,
-          inputAudioFormat: 'wav',
-          textPrompt: 'What is in this recording?',
+          inputAudioFormat: aiAudioPayload?.inputAudioFormat || state.inputAudioFormat || this.audioInputFormat,
+          textPrompt: '',
           ignoreCurrentBlockAudio: !includeAudio,
         });
         return;
@@ -603,9 +737,7 @@ const mixin = {
   getQuickAskAudioConstraints() {
     const audioSelect = document.getElementById('audioDevices');
     const selectedDeviceId = audioSelect?.value;
-    return {
-      audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
-    };
+    return this.getAudioRecordingConstraints(selectedDeviceId);
   },
 
   showQuickAskVoicePanelState(options = {}) {
@@ -614,6 +746,7 @@ const mixin = {
       title,
       hint,
       lockLabel,
+      formatText,
       timerText,
       lockActive = false,
     } = options;
@@ -628,6 +761,9 @@ const mixin = {
     this.quickAskVoiceTitle.textContent = title || this.quickAskVoiceTitle.textContent;
     this.quickAskVoiceHint.textContent = hint || this.quickAskVoiceHint.textContent;
     this.quickAskVoiceLockLabel.textContent = lockLabel || this.quickAskVoiceLockLabel.textContent;
+    if (formatText && this.quickAskVoiceFormat) {
+      this.quickAskVoiceFormat.textContent = formatText;
+    }
     if (timerText) {
       this.quickAskVoiceTimer.textContent = timerText;
     }
@@ -661,6 +797,9 @@ const mixin = {
     state.timerIntervalId = 0;
     state.releaseRequested = null;
     state.mimeType = '';
+    state.formatLabel = this.audioRecordLabel;
+    state.inputAudioFormat = this.audioInputFormat;
+    state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
 
     this.quickAskVoicePanel?.classList.remove('visible', 'locked');
     this.quickAskVoicePanel?.setAttribute('aria-hidden', 'true');
@@ -670,6 +809,9 @@ const mixin = {
     }
     if (this.quickAskVoiceHint) {
       this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock.';
+    }
+    if (this.quickAskVoiceFormat) {
+      this.quickAskVoiceFormat.textContent = 'Format: -';
     }
     if (this.quickAskVoiceLockLabel) {
       this.quickAskVoiceLockLabel.textContent = 'Slide here for hands-free';
@@ -694,10 +836,44 @@ const mixin = {
     } catch (_) { }
   },
 
-  async convertAudioBlobToWavBase64(blob) {
+  async prepareRecordedAudioForBlock(blob, mimeType = '') {
+    const metadata = this.normalizeAudioRecordingMetadata(mimeType, blob?.type);
+    return {
+      ...metadata,
+      base64: await this.convertBlobToBase64(blob),
+    };
+  },
+
+  async prepareRecordedAudioForAI(blob, mimeType = '') {
+    const metadata = this.normalizeAudioRecordingMetadata(mimeType, blob?.type);
+    if (metadata.inputAudioFormat !== 'webm') {
+      return {
+        ...metadata,
+        base64: await this.convertBlobToBase64(blob),
+      };
+    }
+
     const audioBuffer = await this.decodeRecordedAudio(blob);
     const wavArrayBuffer = this.audioBufferToWav(audioBuffer);
-    return this.arrayBufferToBase64(wavArrayBuffer);
+    return {
+      mimeType: 'audio/wav',
+      formatLabel: 'WAV',
+      inputAudioFormat: 'wav',
+      fileExt: 'wav',
+      base64: this.arrayBufferToBase64(wavArrayBuffer),
+    };
+  },
+
+  async convertBlobToBase64(blob) {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        resolve(result.includes(',') ? result.split(',')[1] : result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   },
 
   async decodeRecordedAudio(blob) {
@@ -767,12 +943,18 @@ const mixin = {
     return btoa(binary);
   },
 
-  insertQuickAskAudioIntoCurrentBlock(base64Audio, format = 'wav') {
+  insertQuickAskAudioIntoCurrentBlock(base64Audio, metadata = {}) {
     if (!base64Audio || !this.editor) {
       return null;
     }
 
-    const dataUrl = `data:audio/${format};base64,${base64Audio}`;
+    const normalizedMetadata = typeof metadata === 'string'
+      ? this.normalizeAudioRecordingMetadata(`audio/${metadata}`)
+      : {
+        ...this.normalizeAudioRecordingMetadata(metadata.mimeType || '', metadata.mimeType || ''),
+        ...metadata,
+      };
+    const dataUrl = `data:${normalizedMetadata.mimeType};base64,${base64Audio}`;
     const selection = window.getSelection();
     const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
@@ -801,7 +983,7 @@ const mixin = {
     const audio = document.createElement('audio');
     audio.controls = true;
     audio.src = dataUrl;
-    audio.setAttribute('type', `audio/${format}`);
+    audio.setAttribute('type', normalizedMetadata.mimeType);
 
     const hasMeaningfulContent =
       !!block.querySelector('img, audio, video, iframe, table, pre, code') ||

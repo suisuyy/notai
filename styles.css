@@ -1631,6 +1631,14 @@ pre code {
     gap: 12px;
 }
 
+.quick-ask-voice-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
 .quick-ask-voice-led {
     width: 12px;
     height: 12px;
@@ -1662,6 +1670,17 @@ pre code {
     font-size: 16px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
+}
+
+.quick-ask-voice-format {
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    color: rgba(226, 232, 240, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .quick-ask-voice-lock-zone {

@@ -122,16 +122,16 @@ class HTMLEditor {
     this.isSourceView = false;
     this.autoSaveTimeout = null;
     this.deferredRemoteNoteId = null;
-    this.audioRecordType = 'audio/webm';
-    //check if the browser support webm, if not , use mp4
-    if (!MediaRecorder.isTypeSupported('audio/webm')) {
-      this.audioRecordType = 'audio/mp4';
-    }
-    //get file extension from the type
-    this.audioRecordExt = this.audioRecordType.split('/')[1];
-    //set video record type to video/this.audioRecordExt
-    this.videoRecordType = 'video/' + this.audioRecordExt;
-    this.videoRecordExt = this.audioRecordExt;
+    const audioRecordingConfig = this.resolvePreferredAudioRecordingConfig();
+    this.audioRecordType = audioRecordingConfig.mimeType;
+    this.audioRecordExt = audioRecordingConfig.fileExt;
+    this.audioRecordLabel = audioRecordingConfig.formatLabel;
+    this.audioInputFormat = audioRecordingConfig.inputAudioFormat;
+    this.audioRecordOptions = audioRecordingConfig.recorderOptions;
+    this.audioStreamConstraints = audioRecordingConfig.streamConstraints;
+    const videoRecordingConfig = this.resolvePreferredVideoRecordingConfig();
+    this.videoRecordType = videoRecordingConfig.mimeType;
+    this.videoRecordExt = videoRecordingConfig.fileExt;
     this.quickAskVoiceMinDurationMs = 2000;
     this.quickAskVoiceState = {
       active: false,
@@ -148,6 +148,9 @@ class HTMLEditor {
       releaseRequested: null,
       completing: null,
       mimeType: '',
+      formatLabel: this.audioRecordLabel,
+      inputAudioFormat: this.audioInputFormat,
+      audioBitsPerSecond: this.audioRecordOptions?.audioBitsPerSecond ?? null,
     };
 
     this.checkAuthAndLoadNotes();

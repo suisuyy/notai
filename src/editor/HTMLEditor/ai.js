@@ -251,7 +251,7 @@ const mixin = {
     const {
       skipContext = false,
       inputAudioBase64 = null,
-      inputAudioFormat = 'wav',
+      inputAudioFormat = null,
       ignoreCurrentBlockAudio = false,
     } = options;
 
@@ -405,7 +405,7 @@ const mixin = {
     // Check for image in selection or current block
     let imageUrl = null;
     let audioUrl = null;
-    let audioFormat = inputAudioFormat || 'wav';
+    let audioFormat = inputAudioFormat || this.audioInputFormat || 'wav';
     let videoUrl = null;
     let selectedContent = range.cloneContents();
     let imgElement = selectedContent?.querySelector('img') || (includeCurrentBlockMedia ? currentBlock.querySelector('img') : null);
@@ -440,11 +440,15 @@ const mixin = {
 
     if (inputAudioBase64) {
       audioUrl = inputAudioBase64;
-      audioFormat = inputAudioFormat || 'wav';
+      audioFormat = inputAudioFormat || this.audioInputFormat || 'wav';
     }
 
     if (!inputAudioBase64 && audioElement && audioElement.src) {
-      if (this.aiSettings.compitable_mode) {
+      const audioSrc = audioElement.src || '';
+      if (audioSrc.startsWith('data:audio/') || audioSrc.startsWith('data:video/mp4')) {
+        audioUrl = audioSrc.includes(',') ? audioSrc.split(',')[1] : audioSrc;
+      }
+      else if (this.aiSettings.compitable_mode) {
         audioUrl = await fetchAndConvertToBase64(audioElement.src);
         console.log("Base64 audio:", audioUrl);
       }
@@ -452,9 +456,12 @@ const mixin = {
         audioUrl = audioElement.src;
       }
 
-      const audioSrc = audioElement.src || '';
-      if (audioSrc.startsWith('data:audio/wav')) {
+      if (audioSrc.startsWith('data:audio/mp4') || audioSrc.startsWith('data:video/mp4')) {
+        audioFormat = 'm4a';
+      } else if (audioSrc.startsWith('data:audio/wav')) {
         audioFormat = 'wav';
+      } else if (audioSrc.startsWith('data:audio/webm')) {
+        audioFormat = 'webm';
       }
 
     }
@@ -893,8 +900,8 @@ const mixin = {
   async handleQuickAsk(options = {}) {
     const {
       inputAudioBase64 = null,
-      inputAudioFormat = 'wav',
-      textPrompt = 'What is in this recording?',
+      inputAudioFormat = null,
+      textPrompt = '',
       ignoreCurrentBlockAudio = false,
     } = options;
     const context = this.getBlockContext();
@@ -903,9 +910,7 @@ const mixin = {
       return;
     }
 
-    const promptText = inputAudioBase64
-      ? `${textPrompt}\n\nthis is our chat history,when generate image, dont include text from history unless needed :\n <history>${context.contextText}\n</history>\n\n\n${context.currentText}`
-      : 'this is our chat history,when generate image, dont include text from history unless needed :\n <history>' + context.contextText + '\n</history>\n\n\n' + context.currentText;
+    const promptText = '\n <context>\n this some context:' + context.contextText + '\n</context>\n\n ' + context.currentText;
 
     return this.handleAIAction('ask', promptText, true, {
       skipContext: true,
