@@ -222,6 +222,81 @@ const mixin = {
     return lines.join('\n');
   },
 
+  isLikelyBase64Value(value = '') {
+    if (typeof value !== 'string') {
+      return false;
+    }
+    const normalized = value.trim();
+    if (normalized.length < 64) {
+      return false;
+    }
+    if (normalized.startsWith('data:')) {
+      return true;
+    }
+    return /^[A-Za-z0-9+/=]+$/.test(normalized);
+  },
+
+  abbreviateBase64Value(value = '') {
+    const text = `${value ?? ''}`;
+    if (text.length <= 19) {
+      return text;
+    }
+    return `${text.slice(0, 30)}...${text.slice(-4)}`;
+  },
+
+  redactBase64InValue(value) {
+    if (typeof value === 'string') {
+      if (this.isLikelyBase64Value(value)) {
+        const tokenIndex = this._aiRequestDetailsBase64Tokens.length;
+        this._aiRequestDetailsBase64Tokens.push({
+          abbreviated: this.abbreviateBase64Value(value),
+          full: value,
+        });
+        return `__BASE64_TOKEN_${tokenIndex}__`;
+      }
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.redactBase64InValue(item));
+    }
+
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entryValue]) => [key, this.redactBase64InValue(entryValue)])
+      );
+    }
+
+    return value;
+  },
+
+  formatRequestBodyForDetails(requestBody = '') {
+    const bodyText = `${requestBody ?? ''}`;
+    if (!bodyText.trim()) {
+      return '';
+    }
+
+    try {
+      this._aiRequestDetailsBase64Tokens = [];
+      const parsed = JSON.parse(bodyText);
+      const redacted = this.redactBase64InValue(parsed);
+      const json = JSON.stringify(redacted, null, 2);
+      let escaped = this.escapeHTML(json);
+      this._aiRequestDetailsBase64Tokens.forEach((token, index) => {
+        const placeholder = this.escapeHTML(`"__BASE64_TOKEN_${index}__"`);
+        const replacement = `<span class="copyable-base64" data-copy="${this.escapeHTML(token.full)}" title="Click to copy base64">${this.escapeHTML(token.abbreviated)}</span>`;
+        escaped = escaped.replace(placeholder, replacement);
+      });
+      this._aiRequestDetailsBase64Tokens = [];
+      return escaped;
+    } catch (_) {
+      return this.escapeHTML(bodyText).replace(
+        /\b(?:data:[^;\s]+;base64,)?[A-Za-z0-9+/=]{64,}\b/g,
+        (match) => `<span class="copyable-base64" data-copy="${this.escapeHTML(match)}" title="Click to copy base64">${this.escapeHTML(this.abbreviateBase64Value(match))}</span>`
+      );
+    }
+  },
+
   openAIRequestDetailsModal(runDetails) {
     this.setupAIRequestDetailsModal();
     const modal = document.getElementById('aiRequestDetailsModal');
@@ -230,7 +305,38 @@ const mixin = {
       return;
     }
 
-    content.textContent = this.formatAIRequestDetails(runDetails);
+    const requests = Array.isArray(runDetails?.requests) ? runDetails.requests : [];
+    const sections = requests.map((entry, index) => {
+      const requestBodyHtml = this.formatRequestBodyForDetails(entry.requestBody || '');
+      const responseHtml = this.escapeHTML(`${entry.rawResponseText || ''}`);
+      return [
+        `<div class="ai-request-section">`,
+        `<div class="ai-request-line"><strong>Request ${index + 1}${entry.model ? ` (${this.escapeHTML(entry.model)})` : ''}</strong></div>`,
+        `<div class="ai-request-line"><strong>URL:</strong> ${this.escapeHTML(entry.requestUrl || '')}</div>`,
+        `<div class="ai-request-line"><strong>Method:</strong> ${this.escapeHTML(entry.requestMethod || 'POST')}</div>`,
+        `<div class="ai-request-line"><strong>Body:</strong></div>`,
+        `<pre class="ai-request-pre">${requestBodyHtml}</pre>`,
+        `<div class="ai-request-line"><strong>Response Final Result:</strong></div>`,
+        `<pre class="ai-request-pre">${responseHtml}</pre>`,
+        `</div>`,
+      ].join('');
+    });
+
+    content.innerHTML = sections.join('');
+    content.querySelectorAll('.copyable-base64').forEach((element) => {
+      element.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const textToCopy = element.getAttribute('data-copy') || '';
+        try {
+          await navigator.clipboard.writeText(textToCopy);
+          this.showToast('Base64 copied', 'success', { durationMs: 2000 });
+        } catch (error) {
+          console.error('Failed to copy base64:', error);
+          this.showToast('Failed to copy base64', 'error', { durationMs: 2500 });
+        }
+      });
+    });
     modal.style.display = 'block';
   },
 

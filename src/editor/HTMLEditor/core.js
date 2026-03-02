@@ -2222,18 +2222,8 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     toast.appendChild(messageEl);
 
     if (actionLabel && typeof onAction === 'function') {
-      const actionButton = document.createElement('button');
-      actionButton.type = 'button';
-      actionButton.className = 'toast-action';
-      actionButton.textContent = actionLabel;
-      actionButton.addEventListener('click', () => {
-        try {
-          onAction();
-        } catch (error) {
-          console.error('Toast action failed:', error);
-        }
-      });
-      toast.appendChild(actionButton);
+      toast.classList.add('is-clickable');
+      toast.title = actionLabel;
     }
 
     const closeButton = document.createElement('button');
@@ -2262,6 +2252,19 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     };
 
     closeBtn.addEventListener('click', closeToast);
+
+    if (actionLabel && typeof onAction === 'function') {
+      toast.addEventListener('click', (event) => {
+        if (event.target.closest('.toast-close')) {
+          return;
+        }
+        try {
+          onAction();
+        } catch (error) {
+          console.error('Toast action failed:', error);
+        }
+      });
+    }
 
     // Auto close after configured timeout
     setTimeout(closeToast, durationMs);

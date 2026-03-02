@@ -955,7 +955,23 @@ const mixin = {
     }
 
     if (!block) {
-      block = this.addNewBlock(true, anchorNode, anchorRange);
+      block = document.createElement('div');
+      block.className = 'block';
+      block.innerHTML = '<br><br><br><br>';
+      block.classList.add('highlight');
+      setTimeout(() => {
+        block.classList.remove('highlight');
+      }, 1000);
+
+      const spacerAfter = document.createElement('br');
+      const firstChild = this.editor.firstChild;
+      if (firstChild) {
+        this.editor.insertBefore(block, firstChild);
+        this.editor.insertBefore(spacerAfter, block.nextSibling);
+      } else {
+        this.editor.appendChild(block);
+        this.editor.appendChild(spacerAfter);
+      }
     }
 
     if (!block) {
