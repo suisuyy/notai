@@ -910,7 +910,8 @@ const mixin = {
       return;
     }
 
-    const promptText = '\n <context>\n this some context:' + context.contextText + '\n</context>\n\n ' + context.currentText;
+    const promptText = '\n <context>\n this context:' + context.contextText + '\n</context>\n\n ' + context.currentText;
+    // const promptText = context.currentText;
 
     return this.handleAIAction('ask', promptText, true, {
       skipContext: true,
