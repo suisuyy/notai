@@ -152,6 +152,10 @@ class HTMLEditor {
       inputAudioFormat: this.audioInputFormat,
       audioBitsPerSecond: this.audioRecordOptions?.audioBitsPerSecond ?? null,
     };
+    this.aiResponseAudioState = {
+      hasAutoplayed: false,
+      currentElement: null,
+    };
 
     this.checkAuthAndLoadNotes();
     this.loadFolders();

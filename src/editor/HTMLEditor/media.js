@@ -1,4 +1,5 @@
 import globalDevices from '../../state/globalDevices.js';
+import utils from '../../utils/index.js';
 
 const mixin = {
   resolvePreferredAudioRecordingConfig() {
@@ -883,6 +884,55 @@ const mixin = {
       return await audioContext.decodeAudioData(arrayBuffer.slice(0));
     } finally {
       await audioContext.close();
+    }
+  },
+
+  stopAIResponseAudioPlayback() {
+    const state = this.aiResponseAudioState;
+    if (!state) {
+      return;
+    }
+
+    if (state.currentElement) {
+      try {
+        state.currentElement.pause();
+        state.currentElement.currentTime = 0;
+      } catch (_) { }
+      state.currentElement.src = '';
+      state.currentElement.load?.();
+      state.currentElement = null;
+    }
+  },
+
+  async autoplayAIResponseAudio(base64Audio, mimeType = '') {
+    if (!base64Audio || this.aiResponseAudioState?.hasAutoplayed) {
+      return false;
+    }
+
+    const resolvedMimeType = mimeType && mimeType !== 'application/octet-stream'
+      ? mimeType
+      : (utils.detectMimeTypeFromBase64(base64Audio) || 'audio/wav');
+    const safeMimeType = resolvedMimeType === 'video/mp4' ? 'audio/mp4' : resolvedMimeType;
+    const audioUrl = `data:${safeMimeType};base64,${base64Audio}`;
+
+    this.stopAIResponseAudioPlayback();
+
+    try {
+      const audio = new Audio();
+      audio.preload = 'auto';
+      audio.src = audioUrl;
+      audio.onended = () => {
+        if (this.aiResponseAudioState?.currentElement === audio) {
+          this.aiResponseAudioState.currentElement = null;
+        }
+      };
+      this.aiResponseAudioState.currentElement = audio;
+      this.aiResponseAudioState.hasAutoplayed = true;
+      await audio.play();
+      return true;
+    } catch (error) {
+      this.aiResponseAudioState.currentElement = null;
+      throw error;
     }
   },
 

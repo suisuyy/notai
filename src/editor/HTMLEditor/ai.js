@@ -862,11 +862,23 @@ const mixin = {
           // Handle the response for audio output , the audio is in responseObject.choices[0].message.audio, it has properties data: kjasbase64, transcript: "text"
           if (responseObject.choices[0].message.audio) {
             let audio = responseObject.choices[0].message.audio;
-            let audioUrl = 'data:audio/wav;base64,' + audio.data;
+            const detectedMimeType = (() => {
+              const mimeType = utils.detectMimeTypeFromBase64(audio.data);
+              if (!mimeType || mimeType === 'application/octet-stream') {
+                return 'audio/wav';
+              }
+              return mimeType === 'video/mp4' ? 'audio/mp4' : mimeType;
+            })();
+            let audioUrl = `data:${detectedMimeType};base64,${audio.data}`;
             requestDetail.rawResponseText = audio.transcript || '';
-            contentEl.innerHTML = `<audio controls src="${audioUrl}" type="audio/wav"></audio>
+            contentEl.innerHTML = `<audio controls src="${audioUrl}" type="${detectedMimeType}"></audio>
             <br><br> ${audio.transcript} 
             <br><br> by ${modelName}`;
+            try {
+              await this.autoplayAIResponseAudio(audio.data, detectedMimeType);
+            } catch (audioPlaybackError) {
+              console.warn('Unable to autoplay AI response audio:', audioPlaybackError);
+            }
 
           }
           else {
