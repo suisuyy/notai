@@ -877,6 +877,160 @@ const mixin = {
     });
   },
 
+  async captureQuickAskPhoto() {
+    let stream = null;
+    let video = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      });
+
+      video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await video.play();
+
+      await new Promise((resolve) => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          resolve();
+          return;
+        }
+        video.onloadeddata = () => resolve();
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob) {
+        throw new Error('Unable to capture photo');
+      }
+
+      return {
+        blob,
+        base64: await this.convertBlobToBase64(blob),
+        mimeType: 'image/jpeg',
+      };
+    } finally {
+      if (video) {
+        video.pause?.();
+        video.srcObject = null;
+      }
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+  },
+
+  insertQuickAskImageIntoCurrentBlock(base64Image, mimeType = 'image/jpeg') {
+    if (!base64Image || !this.editor) {
+      return null;
+    }
+
+    const dataUrl = `data:${mimeType};base64,${base64Image}`;
+    const selection = window.getSelection();
+    const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
+
+    let block = null;
+    if (anchorNode) {
+      const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement;
+      const candidate = anchorElement?.closest?.('.block');
+      if (candidate && this.editor.contains(candidate)) {
+        block = candidate;
+      }
+    }
+
+    if (!block && this.currentBlock && this.editor.contains(this.currentBlock)) {
+      block = this.currentBlock;
+    }
+
+    if (!block) {
+      block = this.addNewBlock(true, anchorNode, anchorRange);
+    }
+
+    if (!block) {
+      return null;
+    }
+
+    const image = document.createElement('img');
+    image.src = dataUrl;
+    image.alt = 'Quick camera capture';
+    image.classList.add('quick-shot-image');
+
+    const hasMeaningfulContent =
+      !!block.querySelector('img, audio, video, iframe, table, pre, code') ||
+      !!block.textContent.trim();
+
+    if (!hasMeaningfulContent) {
+      block.innerHTML = '';
+    } else {
+      const lastChild = block.lastChild;
+      if (!(lastChild && lastChild.nodeName === 'BR')) {
+        block.appendChild(document.createElement('br'));
+      }
+    }
+
+    block.appendChild(image);
+    block.appendChild(document.createElement('br'));
+
+    setTimeout(() => {
+      image.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+    }, 0);
+
+    this.currentBlock = block;
+    this.showBlockControls?.(block);
+    this.delayedSaveNote?.();
+
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(block);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    } catch (_) { }
+
+    return image;
+  },
+
+  async handleQuickAskCameraCapture() {
+    const triggerButton = document.getElementById('quickAskCameraBtn');
+    if (triggerButton?.disabled) {
+      return;
+    }
+
+    try {
+      if (triggerButton) {
+        triggerButton.disabled = true;
+        triggerButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+      }
+
+      const capture = await this.captureQuickAskPhoto();
+      this.insertQuickAskImageIntoCurrentBlock(capture.base64, capture.mimeType);
+      await this.handleQuickAsk({
+        inputImageBase64: capture.base64,
+        inputImageMimeType: capture.mimeType,
+      });
+    } catch (error) {
+      console.error('Quick camera ask failed:', error);
+      this.showToast('Unable to capture photo');
+    } finally {
+      if (triggerButton) {
+        triggerButton.disabled = false;
+        triggerButton.innerHTML = '<i class="fas fa-camera"></i>';
+      }
+    }
+  },
+
   async decodeRecordedAudio(blob) {
     const arrayBuffer = await blob.arrayBuffer();
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();

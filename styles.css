@@ -176,6 +176,12 @@ img {
     height: 300px !important;
 }
 
+.quick-shot-image {
+    width: auto !important;
+    height: 30vh !important;
+    max-width: 100%;
+}
+
 img:hover {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.9);
     transition: all 0.5s ease;
@@ -1332,8 +1338,8 @@ pre code {
 
     .editor img,
     .editor video {
-        max-width: 100% !important;
-        height: auto !important;
+        max-width: 80% !important;
+        height: auto;
     }
 
     .editor iframe {
@@ -1587,6 +1593,11 @@ pre code {
     transition: all 0.3s ease;
 }
 
+.quick-ask-camera-btn {
+    left: 80px;
+    background: #2563eb;
+}
+
 .quick-ask-btn.is-recording {
     background: #ef4444;
     transform: scale(1.06);
@@ -1754,6 +1765,15 @@ pre code {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
+.quick-ask-camera-btn:hover {
+    background: #1d4ed8;
+}
+
+.quick-ask-camera-btn:disabled {
+    cursor: wait;
+    opacity: 0.9;
+}
+
 .quick-ask-btn.is-recording:hover {
     background: #ef4444;
     transform: scale(1.06);
@@ -1785,6 +1805,10 @@ pre code {
 }
 
 @media (max-width: 640px) {
+    .quick-ask-camera-btn {
+        left: 78px;
+    }
+
     .quick-ask-voice-panel {
         left: 16px;
         right: 16px;

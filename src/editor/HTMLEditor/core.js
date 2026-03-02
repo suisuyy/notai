@@ -893,6 +893,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       const videoDevices = document.getElementById('videoDevices');
       const audioDevices = document.getElementById('audioDevices');
       const quickAskBtn = document.getElementById('quickAskBtn');
+      const quickAskCameraBtn = document.getElementById('quickAskCameraBtn');
       const addBlockBtn = document.getElementById('addBlockBtn');
       const viewSourceBtn = document.getElementById('viewSourceBtn');
       const toggleEditableBtn = document.getElementById('toggleEditableBtn');
@@ -1137,6 +1138,11 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       // Quick Ask button 
       if (quickAskBtn) {
         this.setupQuickAskVoiceControls(quickAskBtn);
+      }
+      if (quickAskCameraBtn) {
+        quickAskCameraBtn.addEventListener('click', async () => {
+          await this.handleQuickAskCameraCapture();
+        });
       }
 
       // Sidebar toggle

@@ -252,6 +252,8 @@ const mixin = {
       skipContext = false,
       inputAudioBase64 = null,
       inputAudioFormat = null,
+      inputImageBase64 = null,
+      inputImageMimeType = 'image/jpeg',
       ignoreCurrentBlockAudio = false,
     } = options;
 
@@ -417,7 +419,10 @@ const mixin = {
     let videoElement = selectedContent?.querySelector('video') || (includeCurrentBlockMedia ? currentBlock.querySelector('video') : null);
 
 
-    if (imgElement && imgElement.src) {
+    if (inputImageBase64) {
+      imageUrl = `data:${inputImageMimeType || 'image/jpeg'};base64,${inputImageBase64}`;
+    }
+    else if (imgElement && imgElement.src) {
       imageUrl = imgElement.src;
     }
 
@@ -913,6 +918,8 @@ const mixin = {
     const {
       inputAudioBase64 = null,
       inputAudioFormat = null,
+      inputImageBase64 = null,
+      inputImageMimeType = 'image/jpeg',
       textPrompt = '',
       ignoreCurrentBlockAudio = false,
     } = options;
@@ -929,6 +936,8 @@ const mixin = {
       skipContext: true,
       inputAudioBase64,
       inputAudioFormat,
+      inputImageBase64,
+      inputImageMimeType,
       ignoreCurrentBlockAudio,
     });
   },
