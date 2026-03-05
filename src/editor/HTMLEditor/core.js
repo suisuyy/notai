@@ -413,20 +413,37 @@ const mixin = {
       return;
     }
 
-    if (!navigator.clipboard?.writeText) {
+    if (!navigator.clipboard?.write && !navigator.clipboard?.writeText) {
       this.showToast('Clipboard access is not available in this browser.', 'error');
       return;
     }
 
     try {
+      const html = this.getBlockHtmlForClipboard(this.blockControlsTarget);
       const text = this.getBlockPlainText(this.blockControlsTarget);
+      const hasHtml = !!html && !!html.trim();
+      const hasText = !!text && !!text.trim();
 
-      if (!text || !text.trim()) {
+      if (!hasHtml && !hasText) {
         this.showToast('This block is empty.', 'info');
         return;
       }
 
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        const payload = {};
+        if (hasHtml) {
+          payload['text/html'] = new Blob([html], { type: 'text/html' });
+        }
+        if (hasText) {
+          payload['text/plain'] = new Blob([text], { type: 'text/plain' });
+        }
+        await navigator.clipboard.write([new ClipboardItem(payload)]);
+      } else if (hasText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        this.showToast('Clipboard HTML copy is not supported in this browser.', 'error');
+        return;
+      }
       this.showBlockCopyFeedback();
     } catch (error) {
       console.error('Failed to copy block:', error);
@@ -489,6 +506,21 @@ const mixin = {
         return;
       }
 
+      if (tag === 'IMG') {
+        parts.push('[Image]');
+        return;
+      }
+
+      if (tag === 'AUDIO') {
+        parts.push('[Audio]');
+        return;
+      }
+
+      if (tag === 'VIDEO') {
+        parts.push('[Video]');
+        return;
+      }
+
       Array.from(node.childNodes || []).forEach(traverse);
 
       if (blockLevelTags.has(tag)) {
@@ -502,6 +534,47 @@ const mixin = {
     text = text.replace(/[ \t]+\n/g, '\n');
     text = text.replace(/\n{3,}/g, '\n\n');
     return text.trimEnd();
+  },
+
+  getBlockHtmlForClipboard(block) {
+    if (!block) {
+      return '';
+    }
+    return block.innerHTML || '';
+  },
+
+  buildSelectionClipboardPayload() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (range.collapsed || !this.editor?.contains(range.commonAncestorContainer)) {
+      return null;
+    }
+
+    const fragment = range.cloneContents();
+    if (!fragment || !(fragment.childNodes?.length > 0)) {
+      return null;
+    }
+
+    const container = document.createElement('div');
+    container.appendChild(fragment);
+
+    const html = container.innerHTML || '';
+    if (!html.trim()) {
+      return null;
+    }
+
+    const hasMedia = !!container.querySelector('audio, video, img, iframe');
+    const text = (this.getBlockPlainText(container) || selection.toString() || '').trim();
+
+    return {
+      html,
+      text,
+      hasMedia,
+    };
   },
 
   focusBlockInViewport(block) {
@@ -576,19 +649,104 @@ const mixin = {
     return text.replace(/\n/g, '<br>');
   },
 
+  getEditorInsertionSelectionAndRange() {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const activeRange = selection.getRangeAt(0);
+      if (this.editor?.contains(activeRange.commonAncestorContainer)) {
+        return {
+          selection,
+          range: activeRange,
+        };
+      }
+    }
+
+    if (!this.editor) {
+      return {
+        selection,
+        range: null,
+      };
+    }
+
+    const fallbackRange = document.createRange();
+    fallbackRange.selectNodeContents(this.editor);
+    fallbackRange.collapse(false);
+
+    try {
+      selection?.removeAllRanges();
+      selection?.addRange(fallbackRange);
+    } catch (_) { }
+
+    return {
+      selection,
+      range: fallbackRange,
+    };
+  },
+
+  insertHtmlAtSelection(html) {
+    if (typeof html !== 'string' || html.trim().length === 0) {
+      return false;
+    }
+
+    const normalizedHtml = this.normalizeClipboardHtml(html);
+    const { selection, range } = this.getEditorInsertionSelectionAndRange();
+    if (!range) {
+      return false;
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = normalizedHtml;
+    const fragment = template.content;
+    const lastNode = fragment.lastChild;
+
+    range.deleteContents();
+    range.insertNode(fragment);
+
+    if (selection) {
+      const afterRange = document.createRange();
+      if (lastNode?.parentNode) {
+        afterRange.setStartAfter(lastNode);
+      } else {
+        afterRange.selectNodeContents(this.editor);
+      }
+      afterRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(afterRange);
+    }
+
+    return true;
+  },
+
+  normalizeClipboardHtml(html) {
+    if (typeof html !== 'string') {
+      return '';
+    }
+
+    if (!/(<html|<body|<head|<meta)/i.test(html)) {
+      return html;
+    }
+
+    try {
+      const parser = new DOMParser();
+      const parsed = parser.parseFromString(html, 'text/html');
+      return parsed?.body?.innerHTML || html;
+    } catch (_) {
+      return html;
+    }
+  },
+
   insertPlainTextAtSelection(text) {
     if (typeof text !== 'string' || text.length === 0) {
       return false;
     }
 
-    const selection = window.getSelection();
-    if (!selection || !selection.rangeCount) {
+    const { selection, range } = this.getEditorInsertionSelectionAndRange();
+    if (!selection || !range) {
       return false;
     }
 
     const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const parts = normalized.split('\n');
-    const range = selection.getRangeAt(0);
     range.deleteContents();
 
     const fragment = document.createDocumentFragment();
@@ -1401,6 +1559,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
           // Types that should snapshot prior state
           const type = e.inputType || '';
           const now = Date.now();
+          const inputData = typeof e.data === 'string' ? e.data : '';
           const typingTypes = new Set([
             'insertText', 'insertCompositionText'
           ]);
@@ -1413,11 +1572,23 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
             'formatBlock', 'formatRemove', 'historyUndo', 'historyRedo'
           ]);
 
-          // Coalesce continuous typing/deleting within 1s; snapshot on boundary changes
+          // Coalesce continuous typing/deleting, but force checkpoints at natural typing boundaries.
+          const isTyping = typingTypes.has(type);
+          const isDelete = mergeableDelete.has(type);
+          const isTypingCheckpoint = isTyping && /\s/.test(inputData);
           const shouldCoalesce = typingTypes.has(type) || mergeableDelete.has(type);
-          const boundaryChange = type !== this.lastInputType || (now - this.lastInputTime) > 1000;
+          const boundaryChange =
+            type !== this.lastInputType ||
+            (now - this.lastInputTime) > 800 ||
+            isTypingCheckpoint;
+
           if (shouldCoalesce && boundaryChange) {
-            this.recordSnapshot('typing-start:' + type);
+            const reason = isDelete
+              ? 'delete-start:' + type
+              : isTypingCheckpoint
+                ? 'typing-checkpoint:' + type
+                : 'typing-start:' + type;
+            this.recordSnapshot(reason);
           } else if (!shouldCoalesce) {
             // Non-typing actions always snapshot before
             this.recordSnapshot('before:' + type);
@@ -1447,34 +1618,80 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
           }
         });
 
+        this.editor.addEventListener('copy', (event) => {
+          const payload = this.buildSelectionClipboardPayload();
+          if (!payload?.hasMedia || !event.clipboardData) {
+            return;
+          }
+
+          event.preventDefault();
+          event.clipboardData.setData('text/html', payload.html);
+          event.clipboardData.setData('text/plain', payload.text);
+        });
+
+        this.editor.addEventListener('cut', (event) => {
+          const payload = this.buildSelectionClipboardPayload();
+          if (!payload?.hasMedia || !event.clipboardData) {
+            return;
+          }
+
+          event.preventDefault();
+          event.clipboardData.setData('text/html', payload.html);
+          event.clipboardData.setData('text/plain', payload.text);
+
+          this.recordSnapshot('before:cut-media');
+          const selection = window.getSelection();
+          if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+          this.recordSnapshot('after:cut-media');
+
+          this.delayedSaveNote();
+          setTimeout(() => {
+            this.cleanNote();
+          }, 1000);
+        });
+
         this.editor.addEventListener('paste', (event) => {
           let handled = false;
-          const selection = window.getSelection();
-          if (selection && selection.rangeCount) {
-            const range = selection.getRangeAt(0);
-            const startNode = range.startContainer;
-            const anchorElement = startNode?.nodeType === Node.ELEMENT_NODE
-              ? startNode
-              : startNode?.parentElement;
-            const block = anchorElement?.closest?.('.block') || this.currentBlock;
+          const dataTransfer = event.clipboardData || window.clipboardData;
+          if (dataTransfer) {
+            const hasFiles = dataTransfer.files && dataTransfer.files.length > 0;
+            let htmlText = '';
+            let plainText = '';
+            try {
+              htmlText = dataTransfer.getData('text/html') || '';
+            } catch (_) {
+              htmlText = '';
+            }
+            try {
+              plainText = dataTransfer.getData('text/plain') || dataTransfer.getData('Text') || '';
+            } catch (_) {
+              plainText = '';
+            }
 
-            const dataTransfer = event.clipboardData || window.clipboardData;
-            if (block && dataTransfer) {
-              const hasFiles = dataTransfer.files && dataTransfer.files.length > 0;
-              let plainText = '';
-              try {
-                plainText = dataTransfer.getData('text/plain') || dataTransfer.getData('Text') || '';
-              } catch (_) {
-                plainText = '';
-              }
+            if (!hasFiles && htmlText && htmlText.trim()) {
+              event.preventDefault();
+              handled = this.insertHtmlAtSelection(htmlText);
+            } else if (!hasFiles && plainText) {
+              event.preventDefault();
+              handled = this.insertPlainTextAtSelection(plainText);
+            }
+          }
 
-              if (!hasFiles && plainText) {
-                event.preventDefault();
-                handled = this.insertPlainTextAtSelection(plainText);
-                if (handled) {
-                  this.currentBlock = block;
-                }
-              }
+          if (handled) {
+            const selection = window.getSelection();
+            const anchorNode = selection?.anchorNode || selection?.focusNode || null;
+            const anchorElement = anchorNode?.nodeType === Node.ELEMENT_NODE
+              ? anchorNode
+              : anchorNode?.parentElement;
+            const block = anchorElement?.closest?.('.block');
+            if (block && this.editor?.contains(block)) {
+              this.currentBlock = block;
             }
           }
 

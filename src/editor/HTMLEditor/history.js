@@ -104,8 +104,31 @@ const mixin = {
     this.redoStack = [];
   },
 
+  ensureCurrentStateSnapshot(reason = 'sync-current') {
+    if (!this.editor) return;
+    const currentContent = this.editor.innerHTML;
+    const last = this.undoStack[this.undoStack.length - 1];
+    if (last && last.content === currentContent) {
+      return;
+    }
+
+    this.undoStack.push({
+      content: currentContent,
+      selection: this.captureSelection(),
+      reason,
+      ts: Date.now(),
+    });
+
+    if (this.undoStack.length > this.maxHistory) {
+      this.undoStack.shift();
+    }
+  },
+
   undo() {
-    if (!this.undoStack || this.undoStack.length <= 1) return; // need prior state
+    if (!this.undoStack || this.undoStack.length === 0) return;
+    // Keep the live editor state at the top so undo steps back one boundary at a time.
+    this.ensureCurrentStateSnapshot('undo-current');
+    if (this.undoStack.length <= 1) return; // need prior state
     const current = this.undoStack.pop();
     const previous = this.undoStack[this.undoStack.length - 1];
     if (!previous) return;
@@ -123,7 +146,10 @@ const mixin = {
     const next = this.redoStack.pop();
     // Push current to undo
     const currentSnapshot = { content: this.editor.innerHTML, selection: this.captureSelection(), reason: 'pre-redo', ts: Date.now() };
-    this.undoStack.push(currentSnapshot);
+    const last = this.undoStack[this.undoStack.length - 1];
+    if (!last || last.content !== currentSnapshot.content) {
+      this.undoStack.push(currentSnapshot);
+    }
     // Apply redo state
     this.editor.innerHTML = next.content;
     this.restoreSelection(next.selection);

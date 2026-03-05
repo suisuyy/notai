@@ -555,7 +555,23 @@ document.addEventListener("DOMContentLoaded", async () => {
       target.tagName === "AUDIO"
     ) {
       event.preventDefault();
-      document.activeElement?.blur();
+      const editorElement = window.editor?.editor;
+      if (editorElement?.contains(target)) {
+        const selection = window.getSelection();
+        if (selection) {
+          const selectionTarget =
+            target.closest(".quick-ask-media-entry") || target;
+          try {
+            const range = document.createRange();
+            range.selectNode(selectionTarget);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            editorElement.focus({ preventScroll: true });
+          } catch (selectionError) {
+            console.warn("Unable to select media element:", selectionError);
+          }
+        }
+      }
       target.scrollIntoView({ behavior: "smooth", block: "start" });
 
       if (midiaURLContainer) {

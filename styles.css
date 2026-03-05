@@ -1185,6 +1185,15 @@ iframe {
     min-height: auto;
 }
 
+.quick-ask-block-pending {
+    background-color: #000 !important;
+    transition: background-color 0.25s ease;
+}
+
+.quick-ask-block-pending .quick-ask-media-info {
+    color: #e5e7eb;
+}
+
 .quick-ask-media-entry {
     display: flex;
     flex-direction: column;

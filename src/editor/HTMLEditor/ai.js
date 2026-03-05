@@ -265,6 +265,7 @@ const mixin = {
       modal.style.display = 'none';
       modal.setAttribute('aria-hidden', 'true');
       closeMediaModal();
+      this.applyQuickAskPendingBlockStyleAfterPreviewDecision?.();
       if (this._aiRequestPreviewResolve) {
         const resolve = this._aiRequestPreviewResolve;
         this._aiRequestPreviewResolve = null;

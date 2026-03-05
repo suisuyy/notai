@@ -153,7 +153,86 @@ const mixin = {
     }
     block.classList.add('media-block', 'quick-ask-media-block');
     block.innerHTML = '';
+    this.trackQuickAskInsertedBlock(block);
+    this.setQuickAskBlockPendingBackground(block);
     return block;
+  },
+
+  resolveQuickAskInsertionTarget() {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const activeRange = selection.getRangeAt(0);
+      const container = activeRange.commonAncestorContainer;
+      const anchorElement = container?.nodeType === Node.ELEMENT_NODE
+        ? container
+        : container?.parentElement;
+      const anchorBlock = anchorElement?.closest?.('.block');
+      if (anchorBlock && this.editor?.contains(anchorBlock)) {
+        return {
+          selection,
+          anchorNode: container,
+          anchorRange: activeRange.cloneRange ? activeRange.cloneRange() : activeRange,
+        };
+      }
+    }
+
+    if (!this.editor) {
+      return {
+        selection,
+        anchorNode: null,
+        anchorRange: null,
+      };
+    }
+
+    const fallbackRange = document.createRange();
+    fallbackRange.selectNodeContents(this.editor);
+    fallbackRange.collapse(false);
+    return {
+      selection,
+      anchorNode: this.editor,
+      anchorRange: fallbackRange,
+    };
+  },
+
+  trackQuickAskInsertedBlock(block) {
+    if (!block) {
+      return;
+    }
+    const existing = Array.isArray(this._quickAskPendingBlocks) ? this._quickAskPendingBlocks : [];
+    this._quickAskPendingBlocks = existing.filter((entry) => entry?.block?.isConnected);
+    this._quickAskPendingBlocks.push({
+      block,
+      createdAt: Date.now(),
+    });
+  },
+
+  setQuickAskBlockPendingBackground(block, durationMs = 10000) {
+    if (!block) {
+      return;
+    }
+
+    if (block._quickAskPendingBgTimeoutId) {
+      window.clearTimeout(block._quickAskPendingBgTimeoutId);
+    }
+
+    block.classList.add('quick-ask-block-pending');
+    block._quickAskPendingBgTimeoutId = window.setTimeout(() => {
+      block.classList.remove('quick-ask-block-pending');
+      block._quickAskPendingBgTimeoutId = null;
+    }, durationMs);
+  },
+
+  applyQuickAskPendingBlockStyleAfterPreviewDecision() {
+    if (!Array.isArray(this._quickAskPendingBlocks) || this._quickAskPendingBlocks.length === 0) {
+      return;
+    }
+
+    this._quickAskPendingBlocks
+      .map((entry) => entry?.block)
+      .filter((block) => block?.isConnected)
+      .forEach((block) => this.setQuickAskBlockPendingBackground(block));
+
+    this._quickAskPendingBlocks = [];
   },
 
   emphasizeQuickAskInsertedBlock(block, focusElement = null) {
@@ -161,12 +240,14 @@ const mixin = {
       return;
     }
 
-    block.classList.remove('quick-ask-block-flash');
-    void block.offsetWidth;
-    block.classList.add('quick-ask-block-flash');
-    window.setTimeout(() => {
+    if (!block.classList.contains('quick-ask-block-pending')) {
       block.classList.remove('quick-ask-block-flash');
-    }, 2200);
+      void block.offsetWidth;
+      block.classList.add('quick-ask-block-flash');
+      window.setTimeout(() => {
+        block.classList.remove('quick-ask-block-flash');
+      }, 2200);
+    }
 
     const scrollTarget = focusElement || block;
     window.setTimeout(() => {
@@ -1559,10 +1640,11 @@ const mixin = {
       ...metadata,
     };
     const dataUrl = `data:${normalizedMetadata.mimeType};base64,${base64Image}`;
-    const selection = window.getSelection();
-    const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
-    const block = this.createQuickAskInsertedMediaBlock(anchorNode, anchorRange);
+    const insertionTarget = this.resolveQuickAskInsertionTarget();
+    const block = this.createQuickAskInsertedMediaBlock(
+      insertionTarget.anchorNode,
+      insertionTarget.anchorRange,
+    );
 
     if (!block) {
       return null;
@@ -1597,6 +1679,7 @@ const mixin = {
     this.delayedSaveNote?.();
 
     try {
+      const selection = insertionTarget.selection || window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(block);
       range.collapse(false);
@@ -1771,10 +1854,11 @@ const mixin = {
         ...metadata,
       };
     const dataUrl = `data:${normalizedMetadata.mimeType};base64,${base64Audio}`;
-    const selection = window.getSelection();
-    const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
-    const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
-    const block = this.createQuickAskInsertedMediaBlock(anchorNode, anchorRange);
+    const insertionTarget = this.resolveQuickAskInsertionTarget();
+    const block = this.createQuickAskInsertedMediaBlock(
+      insertionTarget.anchorNode,
+      insertionTarget.anchorRange,
+    );
 
     if (!block) {
       return null;
@@ -1805,6 +1889,7 @@ const mixin = {
     this.delayedSaveNote?.();
 
     try {
+      const selection = insertionTarget.selection || window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(block);
       range.collapse(false);
