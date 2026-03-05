@@ -272,62 +272,6 @@
                 </div>
             </div>
             <textarea id="sourceView" class="editor source-view" style="display: none;"></textarea>
-            <div id="aiToolbar" class="ai-toolbar">
-                <div class="ai-toolbar-content">
-                    <div class="ai-model-selects">
-                        <div class="custom-dropdown">
-                            <button class="model-select-btn" id="modelBtn1">GPT-4O</button>
-                            <div class="model-options">
-                                <button data-value="gpt-4o">GPT-4O</button>
-                                <button data-value="gpt-4o-mini">GPT-4O Mini</button>
-                                <button data-value="Meta-Llama-3.1-405B-Instruct">Llama 3.1 405B</button>
-                                <button data-value="Llama-3.2-90B-Vision-Instruct">Llama 3.2 90B</button>
-                                <button data-value="Mistral-large">Mistral Large</button>
-                            </div>
-                        </div>
-                        <div class="custom-dropdown">
-                            <button class="model-select-btn" id="modelBtn2">No Second Model</button>
-                            <div class="model-options">
-                                <button data-value="none">No Second Model</button>
-                                <button data-value="gpt-4o">GPT-4O</button>
-                                <button data-value="gpt-4o-mini">GPT-4O Mini</button>
-                                <button data-value="Meta-Llama-3.1-405B-Instruct">Llama 3.1 405B</button>
-                                <button data-value="Mistral-large">Mistral Large</button>
-                            </div>
-                        </div>
-                        <div class="custom-dropdown">
-                            <button class="model-select-btn" id="modelBtn3">No Third Model</button>
-                            <div class="model-options">
-                                <button data-value="none">No Third Model</button>
-                                <button data-value="gpt-4o">GPT-4O</button>
-                                <button data-value="gpt-4o-mini">GPT-4O Mini</button>
-                                <button data-value="Meta-Llama-3.1-405B-Instruct">Llama 3.1 405B</button>
-                                <button data-value="Mistral-large">Mistral Large</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ai-actions">
-                        <button data-ai-action="ask"><i class="fas fa-question-circle"></i> Ask</button>
-                        <button data-ai-action="correct"><i class="fas fa-check-circle"></i> Correct</button>
-                        <button data-ai-action="translate"><i class="fas fa-language"></i> Translate</button>
-                    </div>
-                    <div class="ai-extras">
-                        <label class="ai-option-toggle" title="Include configured system prompt in AI requests.">
-                            <input type="checkbox" id="enableSystemPromptCheckbox" checked>
-                            System Prompt
-                        </label>
-                        <label class="ai-option-toggle"
-                            title="Send text before current cursor as context in AI requests.">
-                            <input type="checkbox" id="enableContextCheckbox" checked>
-                            Context
-                        </label>
-                        <label class="use-comment-toggle" title="Attach AI replies as comments to selected text.">
-                            <input type="checkbox" id="useCommentCheckbox">
-                            Comment
-                        </label>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
     <button id="quickAskBtn" class="quick-ask-btn">
@@ -509,14 +453,21 @@
         </div>
     </div>
     <div id="aiRequestPreviewModal" class="modal" aria-hidden="true" role="dialog"
-        aria-labelledby="aiRequestPreviewTitle">
+        aria-label="AI Request">
         <div class="modal-content">
-            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
-                <h3 id="aiRequestPreviewTitle" style="margin:0;">Review AI Request</h3>
-                <button class="close" aria-label="Close" data-close-ai-preview>&times;</button>
-            </div>
             <div class="modal-body ai-request-preview-body">
-                <div id="aiRequestPreviewMeta" class="ai-request-preview-meta"></div>
+                <div class="ai-request-preview-section">
+                    <label class="ai-request-preview-label" for="aiRequestPreviewUserPrompt">Current Prompt</label>
+                    <div class="ai-request-preview-user-prompt-wrap">
+                        <textarea id="aiRequestPreviewUserPrompt" class="ai-request-preview-textarea ai-request-preview-user-prompt"
+                            placeholder="Prompt to send"></textarea>
+                        <button id="aiRequestPreviewInlineSendBtn" class="ai-request-preview-inline-send" type="button"
+                            title="Send">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <div id="aiRequestPreviewActions" class="ai-request-preview-actions"></div>
+                </div>
                 <div class="ai-request-preview-section ai-request-preview-collapsible is-collapsed"
                     id="aiRequestPreviewSystemPromptSection">
                     <div class="ai-request-preview-section-header">
@@ -549,11 +500,6 @@
                             placeholder="Context to send"></textarea>
                     </div>
                 </div>
-                <div class="ai-request-preview-section">
-                    <label class="ai-request-preview-label" for="aiRequestPreviewUserPrompt">Current Prompt</label>
-                    <textarea id="aiRequestPreviewUserPrompt" class="ai-request-preview-textarea ai-request-preview-user-prompt"
-                        placeholder="Prompt to send"></textarea>
-                </div>
                 <div id="aiRequestPreviewMediaSection" class="ai-request-preview-section">
                     <div class="ai-request-preview-label">Media</div>
                     <div id="aiRequestPreviewMediaList" class="ai-request-preview-media-list"></div>
@@ -561,7 +507,26 @@
             </div>
             <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
                 <button id="aiRequestPreviewCancelBtn" class="btn-secondary">Cancel</button>
+                <button id="aiRequestPreviewCommentBtn" class="btn-secondary" title="Send and attach reply as comment">
+                    <i class="fas fa-comment-dots"></i> Comment
+                </button>
                 <button id="aiRequestPreviewSendBtn" class="btn-primary">Send</button>
+            </div>
+            <div class="modal-footer">
+                <div class="ai-request-preview-models">
+                    <div class="custom-dropdown">
+                        <button class="model-select-btn" id="modelBtn1">GPT-4O Mini</button>
+                        <div class="model-options"></div>
+                    </div>
+                    <div class="custom-dropdown">
+                        <button class="model-select-btn" id="modelBtn2">None</button>
+                        <div class="model-options"></div>
+                    </div>
+                    <div class="custom-dropdown">
+                        <button class="model-select-btn" id="modelBtn3">None</button>
+                        <div class="model-options"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

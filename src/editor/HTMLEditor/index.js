@@ -37,7 +37,7 @@ class HTMLEditor {
     this.DEFAULT_MODELS = [...DEFAULT_MODELS];
 
     // Verify required elements exist
-    if (!editor || !sourceView || !toolbar || !aiToolbar) {
+    if (!editor || !sourceView || !toolbar) {
       console.error("Required editor elements not found");
       return;
     }
@@ -67,7 +67,7 @@ class HTMLEditor {
 
     }, 2000);
     this.toolbar = toolbar;
-    this.aiToolbar = aiToolbar;
+    this.aiToolbar = aiToolbar || null;
     this.setEditableState(false);
     this.currentNoteTitle = "";
     this.lastSavedContent = "";

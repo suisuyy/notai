@@ -1027,6 +1027,10 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       this.aiToolbar.classList.remove("visible");
     };
 
+    if (!this.aiToolbar) {
+      return;
+    }
+
     // Create the handler
     this.selectionChangeHandler = () => {
       if (this.aiToolbarShowTimeout) {

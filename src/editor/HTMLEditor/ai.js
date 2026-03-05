@@ -3,48 +3,31 @@ import utils from '../../utils/index.js';
 
 const mixin = {
   setupAIToolbar() {
-    const initToolbarCheckbox = (id, storageKey, defaultValue) => {
-      const checkbox = document.getElementById(id);
-      if (!checkbox) {
-        return;
-      }
-      try {
-        const saved = localStorage.getItem(storageKey);
-        checkbox.checked = saved === null ? defaultValue : saved === 'true';
-        checkbox.addEventListener('mousedown', (event) => {
-          this._savedSelection = this.captureSelection && this.captureSelection();
-          // Keep current text selection so toolbar does not auto-hide while toggling options.
-          event.preventDefault();
-          event.stopPropagation();
-        });
-        checkbox.addEventListener('pointerdown', (event) => {
-          event.stopPropagation();
-        });
-        checkbox.addEventListener('change', () => {
-          localStorage.setItem(storageKey, checkbox.checked ? 'true' : 'false');
-          if (this._savedSelection && this.restoreSelection) {
-            this.restoreSelection(this._savedSelection);
-            this._savedSelection = null;
-          }
-        });
-      } catch (_) { }
-    };
-
     // Load saved model preferences
     const savedModels = JSON.parse(localStorage.getItem('aiModelPreferences') || '{}');
 
     // Set initial button texts and values
     ['modelBtn1', 'modelBtn2', 'modelBtn3'].forEach((btnId, index) => {
       const btn = document.getElementById(btnId);
+      if (!btn) {
+        return;
+      }
       const modelValue = savedModels[`model${index + 1}`] || (index === 0 ? 'gpt-4o-mini' : 'none');
       btn.textContent = this.getModelDisplayName(modelValue);
       btn.setAttribute('data-selected-value', modelValue);
     });
 
     // Handle custom dropdowns
-    document.querySelectorAll('.custom-dropdown').forEach((dropdown, index) => {
+    document.querySelectorAll('.custom-dropdown').forEach((dropdown) => {
+      if (dropdown.dataset.aiDropdownBound === 'true') {
+        return;
+      }
+      dropdown.dataset.aiDropdownBound = 'true';
       const btn = dropdown.querySelector('.model-select-btn');
       const options = dropdown.querySelector('.model-options');
+      if (!btn || !options) {
+        return;
+      }
 
       // Toggle dropdown
       btn.addEventListener('click', (e) => {
@@ -56,43 +39,22 @@ const mixin = {
         options.classList.toggle('show');
       });
 
-      this.updateModelDropdowns();
     });
 
-    // Close dropdowns when clicking outside, but not the AI toolbar itself
-    document.addEventListener('click', (e) => {
-      // Don't close if clicking inside the AI toolbar
-      if (!this.aiToolbar.contains(e.target)) {
+    if (!this._aiModelDropdownOutsideBound) {
+      this._aiModelDropdownOutsideBound = true;
+      document.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target && target.closest && target.closest('.custom-dropdown')) {
+          return;
+        }
         document.querySelectorAll('.model-options').forEach(opt => {
           opt.classList.remove('show');
         });
-      }
-    });
+      });
+    }
 
-    // Initialize AI toolbar checkbox preferences
-    initToolbarCheckbox('enableSystemPromptCheckbox', 'aiEnableSystemPrompt', true);
-    initToolbarCheckbox('enableContextCheckbox', 'aiEnableContext', true);
-    initToolbarCheckbox('useCommentCheckbox', 'aiUseComment', false);
-    this.aiToolbar?.querySelectorAll('.ai-extras label').forEach((label) => {
-      label.addEventListener('mousedown', (event) => {
-        this._savedSelection = this.captureSelection && this.captureSelection();
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      label.addEventListener('pointerdown', (event) => {
-        event.stopPropagation();
-      });
-      label.addEventListener('click', (event) => {
-        const checkbox = label.querySelector('input[type="checkbox"]');
-        if (!checkbox || event.target === checkbox) {
-          return;
-        }
-        // Toggle from label text click while keeping selection stable.
-        event.preventDefault();
-        checkbox.checked = !checkbox.checked;
-        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-    });
+    this.updateModelDropdowns();
     this.setupAIRequestDetailsModal();
     this.setupAIRequestPreviewModal();
   },
@@ -101,6 +63,9 @@ const mixin = {
     document.querySelectorAll('.custom-dropdown').forEach((dropdown, index) => {
       const btn = dropdown.querySelector('.model-select-btn');
       const options = dropdown.querySelector('.model-options');
+      if (!btn || !options) {
+        return;
+      }
 
       // First, clear any existing options to avoid duplication
       options.innerHTML = '';
@@ -144,24 +109,6 @@ const mixin = {
         });
 
         // Append the button to the options container
-        // Add an event listener to handle model selection
-        button.addEventListener('click', (e) => {
-          e.stopPropagation(); // Prevent the click from bubbling up
-
-          // Update the button text and data-selected-value attribute
-          btn.textContent = model.name;
-          btn.setAttribute('data-selected-value', model.model_id);
-
-          // Hide the dropdown after selection
-          options.classList.remove('show');
-
-          // Save the selected model preference to localStorage
-          const preferences = JSON.parse(localStorage.getItem('aiModelPreferences') || '{}');
-          preferences[`model${index + 1}`] = model.model_id;
-          localStorage.setItem('aiModelPreferences', JSON.stringify(preferences));
-        });
-
-        // Append the button to the options container
         options.appendChild(button);
       });
     });
@@ -173,6 +120,30 @@ const mixin = {
   getModelDisplayName(value) {
     const model = this.aiSettings.models.find(m => m.model_id === value);
     return model ? model.name : value;
+  },
+
+  getStoredBooleanPreference(storageKey, defaultValue) {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved === null ? defaultValue : saved === 'true';
+    } catch (_) {
+      return defaultValue;
+    }
+  },
+
+  getSelectedModelsFromPreviewControls() {
+    const model1 = document.getElementById('modelBtn1')?.getAttribute('data-selected-value') || 'gpt-4o-mini';
+    const model2 = document.getElementById('modelBtn2')?.getAttribute('data-selected-value') || 'none';
+    const model3 = document.getElementById('modelBtn3')?.getAttribute('data-selected-value') || 'none';
+    return [model1, model2, model3].filter((modelId) => modelId && modelId !== 'none');
+  },
+
+  getAIActionTemplate(action) {
+    if (this.aiSettings.prompts[action]) {
+      return this.aiSettings.prompts[action];
+    }
+    const customTool = this.aiSettings.customTools.find(tool => tool.id === action);
+    return customTool?.prompt || '';
   },
 
   setupAIRequestDetailsModal() {
@@ -220,7 +191,9 @@ const mixin = {
     const systemPromptField = document.getElementById('aiRequestPreviewSystemPrompt');
     const contextField = document.getElementById('aiRequestPreviewContextPrompt');
     const userPromptField = document.getElementById('aiRequestPreviewUserPrompt');
+    const inlineSendButton = document.getElementById('aiRequestPreviewInlineSendBtn');
     const mediaList = document.getElementById('aiRequestPreviewMediaList');
+    const commentSendButton = document.getElementById('aiRequestPreviewCommentBtn');
     const sendButton = document.getElementById('aiRequestPreviewSendBtn');
     const cancelButton = document.getElementById('aiRequestPreviewCancelBtn');
     const closeIcon = modal.querySelector('[data-close-ai-preview]');
@@ -273,8 +246,43 @@ const mixin = {
       }
     };
 
-    includeSystemPromptCheckbox?.addEventListener('change', () => updateFieldState(includeSystemPromptCheckbox, systemPromptField));
-    includeContextCheckbox?.addEventListener('change', () => updateFieldState(includeContextCheckbox, contextField));
+    const submitFromPreview = (useComment = false) => {
+      const selectedModels = this.getSelectedModelsFromPreviewControls();
+      if (selectedModels.length === 0) {
+        alert('Please select at least one AI model');
+        return;
+      }
+
+      const mediaItems = Array.from(mediaList?.querySelectorAll('.ai-request-preview-media-item') || []).map((element, index) => {
+        const item = this._aiRequestPreviewState?.mediaItems?.[index];
+        const checkbox = element.querySelector('.ai-request-preview-media-toggle');
+        return item ? { ...item, enabled: !!checkbox?.checked } : null;
+      }).filter(Boolean);
+
+      closeModal({
+        includeSystemPrompt: !!includeSystemPromptCheckbox?.checked,
+        systemPrompt: systemPromptField?.value || '',
+        includeContext: !!includeContextCheckbox?.checked,
+        contextPrompt: contextField?.value || '',
+        prompt: userPromptField?.value || '',
+        mediaItems,
+        models: selectedModels,
+        useComment: !!useComment,
+      });
+    };
+
+    includeSystemPromptCheckbox?.addEventListener('change', () => {
+      updateFieldState(includeSystemPromptCheckbox, systemPromptField);
+      try {
+        localStorage.setItem('aiEnableSystemPrompt', includeSystemPromptCheckbox.checked ? 'true' : 'false');
+      } catch (_) { }
+    });
+    includeContextCheckbox?.addEventListener('change', () => {
+      updateFieldState(includeContextCheckbox, contextField);
+      try {
+        localStorage.setItem('aiEnableContext', includeContextCheckbox.checked ? 'true' : 'false');
+      } catch (_) { }
+    });
     modal.querySelectorAll('[data-ai-preview-toggle-section]').forEach((button) => {
       button.addEventListener('click', () => {
         const sectionKey = button.getAttribute('data-ai-preview-toggle-section');
@@ -301,22 +309,9 @@ const mixin = {
       this.openAIRequestPreviewMediaModal(item);
     });
 
-    sendButton?.addEventListener('click', () => {
-      const mediaItems = Array.from(mediaList?.querySelectorAll('.ai-request-preview-media-item') || []).map((element, index) => {
-        const item = this._aiRequestPreviewState?.mediaItems?.[index];
-        const checkbox = element.querySelector('.ai-request-preview-media-toggle');
-        return item ? { ...item, enabled: !!checkbox?.checked } : null;
-      }).filter(Boolean);
-
-      closeModal({
-        includeSystemPrompt: !!includeSystemPromptCheckbox?.checked,
-        systemPrompt: systemPromptField?.value || '',
-        includeContext: !!includeContextCheckbox?.checked,
-        contextPrompt: contextField?.value || '',
-        prompt: userPromptField?.value || '',
-        mediaItems,
-      });
-    });
+    sendButton?.addEventListener('click', () => submitFromPreview(false));
+    inlineSendButton?.addEventListener('click', () => submitFromPreview(false));
+    commentSendButton?.addEventListener('click', () => submitFromPreview(true));
     cancelButton?.addEventListener('click', () => closeModal(null));
     closeIcon?.addEventListener('click', () => closeModal(null));
     modal.addEventListener('click', (event) => {
@@ -336,6 +331,7 @@ const mixin = {
     this._aiRequestPreviewUpdateFieldState = updateFieldState;
     this._aiRequestPreviewCloseMediaModal = closeMediaModal;
     this._aiRequestPreviewSetSectionCollapsed = setSectionCollapsed;
+    this._aiRequestPreviewSubmit = submitFromPreview;
   },
 
   renderAIRequestPreviewMediaItems(mediaItems = []) {
@@ -463,6 +459,8 @@ const mixin = {
         contextPrompt: preview.contextPrompt || '',
         prompt: preview.prompt || '',
         mediaItems: preview.mediaItems || [],
+        models: Array.isArray(preview.models) ? [...preview.models] : [],
+        useComment: !!preview.useComment,
       };
     }
 
@@ -472,9 +470,6 @@ const mixin = {
     }
 
     const summaryParts = [];
-    if (Array.isArray(preview.models) && preview.models.length > 0) {
-      summaryParts.push(`Models: ${preview.models.join(', ')}`);
-    }
     if (preview.action) {
       summaryParts.push(`Action: ${preview.action}`);
     }
@@ -489,6 +484,8 @@ const mixin = {
       meta.textContent = summaryParts.join(' | ');
     }
     this._aiRequestPreviewState = {
+      selectedText: preview.selectedText || '',
+      action: preview.action || 'ask',
       mediaItems: Array.isArray(preview.mediaItems)
         ? preview.mediaItems.map((item) => ({ ...item }))
         : [],
@@ -498,6 +495,17 @@ const mixin = {
     systemPromptField.value = preview.systemPrompt || '';
     contextField.value = preview.contextPrompt || '';
     userPromptField.value = preview.prompt || '';
+    if (Array.isArray(preview.models)) {
+      ['modelBtn1', 'modelBtn2', 'modelBtn3'].forEach((btnId, index) => {
+        const button = document.getElementById(btnId);
+        if (!button) {
+          return;
+        }
+        const modelId = preview.models[index] || 'none';
+        button.setAttribute('data-selected-value', modelId);
+        button.textContent = this.getModelDisplayName(modelId);
+      });
+    }
     this.renderAIRequestPreviewMediaItems(this._aiRequestPreviewState.mediaItems);
     this._aiRequestPreviewUpdateFieldState?.(includeSystemPromptCheckbox, systemPromptField);
     this._aiRequestPreviewUpdateFieldState?.(includeContextCheckbox, contextField);
@@ -684,24 +692,13 @@ const mixin = {
     //log last updated time
     console.log('handleaiaction update this.lastupdated:', this.lastUpdated);
 
-    // Respect explicit UI toggle instead of auto length-based heuristic
-    const useCommentCheckbox = document.getElementById('useCommentCheckbox');
-    const useComment = !!(useCommentCheckbox && useCommentCheckbox.checked);
-    const enableSystemPromptCheckbox = document.getElementById('enableSystemPromptCheckbox');
-    const enableSystemPrompt = !(enableSystemPromptCheckbox && !enableSystemPromptCheckbox.checked);
-    const enableContextCheckbox = document.getElementById('enableContextCheckbox');
-    const enableContext = !(enableContextCheckbox && !enableContextCheckbox.checked);
+    const enableSystemPrompt = this.getStoredBooleanPreference('aiEnableSystemPrompt', true);
+    const enableContext = this.getStoredBooleanPreference('aiEnableContext', true);
 
-    let customTool = null;
-    let prompt = "";
-    if (this.aiSettings.prompts[action]) {
-      prompt = this.aiSettings.prompts[action].replace('{text}', text);
-    } else {
-      // Handle custom tools
-      customTool = this.aiSettings.customTools.find(tool => tool.id === action);
-      if (customTool) {
-        prompt = customTool.prompt.replace('{text}', text);
-      }
+    const actionTemplate = this.getAIActionTemplate(action);
+    let prompt = actionTemplate ? actionTemplate.replace('{text}', text) : '';
+    if (!prompt) {
+      prompt = text || '';
     }
 
     const describeMediaSource = (src = '', fallbackLabel = 'media') => {
@@ -899,28 +896,19 @@ const mixin = {
       });
     }
 
-    // Get selected models from buttons
-    const model1 = document.getElementById("modelBtn1").getAttribute('data-selected-value') || 'gpt-4o-mini';
-    const model2 = document.getElementById("modelBtn2").getAttribute('data-selected-value') || 'none';
-    const model3 = document.getElementById("modelBtn3").getAttribute('data-selected-value') || 'none';
-
-    // Build array of selected models (excluding "none")
-    const selectedModels = [];
-    if (model1 !== "none") selectedModels.push(model1);
-    if (model2 !== "none") selectedModels.push(model2);
-    if (model3 !== "none") selectedModels.push(model3);
-
-    if (selectedModels.length === 0) {
+    const preferredModels = this.getSelectedModelsFromPreviewControls();
+    if (preferredModels.length === 0) {
       alert("Please select at least one AI model");
       return;
     }
 
     const reviewedRequest = await this.openAIRequestPreviewModal({
       action,
-      models: selectedModels,
+      selectedText: text || '',
+      models: preferredModels,
       includeSystemPrompt: enableSystemPrompt,
       includeContext: !skipContext && enableContext && Boolean(contextText),
-      useComment,
+      useComment: false,
       systemPrompt: enableSystemPrompt ? this.aiSettings.systemPrompt : '',
       contextPrompt: contextText,
       prompt,
@@ -935,9 +923,22 @@ const mixin = {
       return;
     }
 
+    const selectedModels = Array.isArray(reviewedRequest.models) && reviewedRequest.models.length > 0
+      ? reviewedRequest.models.filter((modelId) => modelId && modelId !== 'none')
+      : preferredModels;
+    if (selectedModels.length === 0) {
+      if (savedSelection && this.restoreSelection) {
+        this.restoreSelection(savedSelection);
+      }
+      this.currentBlock = savedCurrentBlock;
+      alert("Please select at least one AI model");
+      return;
+    }
+
     const reviewedSystemPrompt = `${reviewedRequest.systemPrompt || ''}`;
     const reviewedContextPrompt = `${reviewedRequest.contextPrompt || ''}`;
     const reviewedPrompt = `${reviewedRequest.prompt || ''}`;
+    const reviewedUseComment = !!reviewedRequest.useComment;
     const requestUsesSystemPrompt = !!reviewedRequest.includeSystemPrompt && reviewedSystemPrompt.trim().length > 0;
     const requestUsesContext = !!reviewedRequest.includeContext && reviewedContextPrompt.trim().length > 0;
     const finalPrompt = requestUsesContext
@@ -948,7 +949,7 @@ const mixin = {
       action,
       startedAt: new Date().toISOString(),
       selectedText: text || '',
-      useComment,
+      useComment: reviewedUseComment,
       contextEnabled: requestUsesContext,
       contextPrompt: reviewedContextPrompt,
       systemPromptEnabled: requestUsesSystemPrompt,
@@ -958,10 +959,6 @@ const mixin = {
       requests: [],
     };
     this._latestAIRequestDetails = aiRunDetails;
-
-    // Hide AI toolbar immediately
-    this.aiToolbar.style.display = 'none';
-    this.aiToolbar.classList.remove("visible");
 
     if (savedSelection && this.restoreSelection) {
       this.restoreSelection(savedSelection);
@@ -1048,7 +1045,7 @@ const mixin = {
     // an AI response block, explicitly clear the active selection
     // in non-comment mode before we create any new blocks.
     try {
-      if (!useComment && selection && selection.removeAllRanges) {
+      if (!reviewedUseComment && selection && selection.removeAllRanges) {
         selection.removeAllRanges();
       }
     } catch (_) { }
@@ -1082,7 +1079,7 @@ const mixin = {
     let commentGroup = null;
     let commentId = null;
     let underlinedElem = null;
-    if (useComment) {
+    if (reviewedUseComment) {
       underlinedElem = utils.underlineSelectedText();
       if (!underlinedElem && selection && selection.anchorNode) {
         const anchor = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
@@ -1179,7 +1176,7 @@ const mixin = {
       let request = this.apiRequest('POST', '', requestBody, true);
       let block = null;
       let contentEl = null;
-      if (useComment) {
+      if (reviewedUseComment) {
         // Ensure a tabs bar and contents wrapper exist in the comment group
         let tabsBar = commentGroup.querySelector('.comment-tabs');
         let contentsWrap = commentGroup.querySelector('.comment-contents');
@@ -1758,43 +1755,81 @@ const mixin = {
   },
 
   updateAIToolbar() {
-    const actionsContainer = this.aiToolbar.querySelector('.ai-actions');
-    actionsContainer.innerHTML = `
-      <button data-ai-action="ask"><i class="fas fa-question-circle"></i> Ask</button>
-      <button data-ai-action="correct"><i class="fas fa-check-circle"></i> Correct</button>
-      <button data-ai-action="translate"><i class="fas fa-language"></i> Translate</button>
-    `;
+    const actionsContainer = document.getElementById('aiRequestPreviewActions');
+    if (!actionsContainer) {
+      return;
+    }
 
-    // Add custom tool buttons
-    this.aiSettings.customTools.forEach(tool => {
-      if (tool.name) {
-        const button = document.createElement('button');
-        button.setAttribute('data-ai-action', tool.id);
-        button.innerHTML = `<i class="fas fa-magic"></i> ${tool.name}`;
-        actionsContainer.appendChild(button);
+    const actionItems = [
+      { id: 'ask', label: 'Ask', icon: 'fa-question-circle' },
+      { id: 'correct', label: 'Correct', icon: 'fa-check-circle' },
+      { id: 'translate', label: 'Translate', icon: 'fa-language' },
+      ...this.aiSettings.customTools
+        .filter((tool) => tool && tool.name)
+        .map((tool) => ({ id: tool.id, label: tool.name, icon: 'fa-magic' })),
+    ];
+
+    const prependActionTemplate = (actionId, sendImmediately = false) => {
+      const userPromptField = document.getElementById('aiRequestPreviewUserPrompt');
+      if (!userPromptField) {
+        return;
       }
-    });
+      const template = `${this.getAIActionTemplate(actionId) || ''}`;
+      const prependText = template.replace(/\{text\}/g, '').trim();
+      if (!prependText) {
+        return;
+      }
+      const existingPrompt = userPromptField.value || '';
+      userPromptField.value = existingPrompt ? `${prependText}\n${existingPrompt}` : prependText;
+      userPromptField.focus();
+      userPromptField.setSelectionRange(prependText.length, prependText.length);
+      if (sendImmediately) {
+        this._aiRequestPreviewSubmit?.(false);
+      }
+    };
 
-    // Rebind click events
-    actionsContainer.querySelectorAll('button').forEach(button => {
-      // Preserve the user's selection across the toolbar click
-      button.addEventListener('mousedown', (e) => {
-        this._savedSelection = this.captureSelection && this.captureSelection();
-        // Prevent focus change from collapsing selection
-        e.preventDefault();
-      });
-      button.addEventListener('click', async () => {
-        if (this._savedSelection && this.restoreSelection) {
-          this.restoreSelection(this._savedSelection);
-          this._savedSelection = null;
+    actionsContainer.innerHTML = '';
+    actionItems.forEach((item) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ai-request-preview-action-btn';
+      button.setAttribute('data-ai-action', item.id);
+      button.innerHTML = `<i class="fas ${item.icon}"></i> ${this.escapeHTML(item.label)}`;
+
+      let holdTimer = 0;
+      let longPressTriggered = false;
+      const clearHoldTimer = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = 0;
         }
-        const action = button.dataset.aiAction;
-        const selectedText = window.getSelection().toString().trim();
-        this.aiToolbar.style.display = 'none';
+      };
 
-        await this.handleAIAction(action, selectedText);
+      button.addEventListener('pointerdown', () => {
+        longPressTriggered = false;
+        clearHoldTimer();
+        holdTimer = window.setTimeout(() => {
+          longPressTriggered = true;
+          prependActionTemplate(item.id, true);
+        }, 450);
       });
+      button.addEventListener('pointerup', clearHoldTimer);
+      button.addEventListener('pointercancel', clearHoldTimer);
+      button.addEventListener('pointerleave', clearHoldTimer);
+
+      button.addEventListener('click', (event) => {
+        if (longPressTriggered) {
+          longPressTriggered = false;
+          event.preventDefault();
+          return;
+        }
+        prependActionTemplate(item.id, false);
+      });
+
+      actionsContainer.appendChild(button);
     });
+
+    this.updateModelDropdowns();
   },
 };
 
