@@ -133,6 +133,7 @@ class HTMLEditor {
     this.videoRecordType = videoRecordingConfig.mimeType;
     this.videoRecordExt = videoRecordingConfig.fileExt;
     this.quickAskVoiceMinDurationMs = 2000;
+    this.quickAskCameraLongPressMs = 240;
     this.quickAskVoiceState = {
       active: false,
       busy: false,
@@ -151,6 +152,27 @@ class HTMLEditor {
       formatLabel: this.audioRecordLabel,
       inputAudioFormat: this.audioInputFormat,
       audioBitsPerSecond: this.audioRecordOptions?.audioBitsPerSecond ?? null,
+      promptContext: null,
+      releaseRequested: null,
+    };
+    this.quickAskCameraState = {
+      active: false,
+      busy: false,
+      starting: false,
+      pointerId: null,
+      pressStartedAt: 0,
+      holdTimerId: 0,
+      timerIntervalId: 0,
+      videoStream: null,
+      audioStream: null,
+      recorder: null,
+      chunks: [],
+      mimeType: '',
+      inputAudioFormat: this.audioInputFormat,
+      formatLabel: this.audioRecordLabel,
+      promptContext: null,
+      suppressClick: false,
+      releaseRequested: false,
     };
     this.aiResponseAudioState = {
       hasAutoplayed: false,

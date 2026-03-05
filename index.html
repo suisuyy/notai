@@ -151,7 +151,7 @@
                                         <small class="help-text"
                                             style="display: block; margin-top: 8px; color: #6c757d;">This prompt will be
                                             used as the system message for all AI interactions.<b>if the app broken, try
-                                                to reset the system prompt</b></small>
+                                                to reset the system prompt back to empty</b></small>
                                     </div>
                                     <p class="help-text">Use {text} in your prompt templates where you want the selected
                                         text inserted.</p>
@@ -348,6 +348,9 @@
                 <div id="quickAskVoiceTimer" class="quick-ask-voice-timer">0:00</div>
             </div>
         </div>
+        <div id="quickAskCameraPreviewWrap" class="quick-ask-camera-preview-wrap" hidden>
+            <video id="quickAskCameraPreview" class="quick-ask-camera-preview" autoplay playsinline muted></video>
+        </div>
         <div id="quickAskVoiceLockZone" class="quick-ask-voice-lock-zone">
             <i class="fas fa-lock"></i>
             <span id="quickAskVoiceLockLabel">Slide here for hands-free</span>
@@ -499,6 +502,78 @@
             </div>
             <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
                 <button id="aiRequestDetailsCloseBtn" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+    <div id="aiRequestPreviewModal" class="modal" aria-hidden="true" role="dialog"
+        aria-labelledby="aiRequestPreviewTitle">
+        <div class="modal-content">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 id="aiRequestPreviewTitle" style="margin:0;">Review AI Request</h3>
+                <button class="close" aria-label="Close" data-close-ai-preview>&times;</button>
+            </div>
+            <div class="modal-body ai-request-preview-body">
+                <div id="aiRequestPreviewMeta" class="ai-request-preview-meta"></div>
+                <div class="ai-request-preview-section ai-request-preview-collapsible is-collapsed"
+                    id="aiRequestPreviewSystemPromptSection">
+                    <div class="ai-request-preview-section-header">
+                        <label class="ai-request-preview-toggle" for="aiRequestPreviewIncludeSystemPrompt">
+                            <input type="checkbox" id="aiRequestPreviewIncludeSystemPrompt">
+                            <span>System Prompt</span>
+                        </label>
+                        <button type="button" class="ai-request-preview-fold-btn" data-ai-preview-toggle-section="system">
+                            Expand
+                        </button>
+                    </div>
+                    <div class="ai-request-preview-section-body">
+                        <textarea id="aiRequestPreviewSystemPrompt" class="ai-request-preview-textarea"
+                            placeholder="Empty system prompt"></textarea>
+                    </div>
+                </div>
+                <div class="ai-request-preview-section ai-request-preview-collapsible is-collapsed"
+                    id="aiRequestPreviewContextSection">
+                    <div class="ai-request-preview-section-header">
+                        <label class="ai-request-preview-toggle" for="aiRequestPreviewIncludeContext">
+                            <input type="checkbox" id="aiRequestPreviewIncludeContext">
+                            <span>Context</span>
+                        </label>
+                        <button type="button" class="ai-request-preview-fold-btn" data-ai-preview-toggle-section="context">
+                            Expand
+                        </button>
+                    </div>
+                    <div class="ai-request-preview-section-body">
+                        <textarea id="aiRequestPreviewContextPrompt" class="ai-request-preview-textarea"
+                            placeholder="Context to send"></textarea>
+                    </div>
+                </div>
+                <div class="ai-request-preview-section">
+                    <label class="ai-request-preview-label" for="aiRequestPreviewUserPrompt">Current Prompt</label>
+                    <textarea id="aiRequestPreviewUserPrompt" class="ai-request-preview-textarea ai-request-preview-user-prompt"
+                        placeholder="Prompt to send"></textarea>
+                </div>
+                <div id="aiRequestPreviewMediaSection" class="ai-request-preview-section">
+                    <div class="ai-request-preview-label">Media</div>
+                    <div id="aiRequestPreviewMediaList" class="ai-request-preview-media-list"></div>
+                </div>
+            </div>
+            <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+                <button id="aiRequestPreviewCancelBtn" class="btn-secondary">Cancel</button>
+                <button id="aiRequestPreviewSendBtn" class="btn-primary">Send</button>
+            </div>
+        </div>
+    </div>
+    <div id="aiRequestPreviewMediaModal" class="modal" aria-hidden="true" role="dialog"
+        aria-labelledby="aiRequestPreviewMediaTitle">
+        <div class="modal-content ai-request-preview-media-modal-content">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 id="aiRequestPreviewMediaTitle" style="margin:0;">Media Preview</h3>
+                <button class="close" aria-label="Close" data-close-ai-preview-media>&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="aiRequestPreviewMediaViewer" class="ai-request-preview-media-viewer"></div>
+            </div>
+            <div class="modal-footer" style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+                <button id="aiRequestPreviewMediaCloseBtn" class="btn-secondary">Close</button>
             </div>
         </div>
     </div>

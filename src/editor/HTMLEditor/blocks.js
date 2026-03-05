@@ -19,8 +19,16 @@ const mixin = {
       currentBlock = null;
     }
 
+    function sanitizeFragment(root) {
+      if (!root?.querySelectorAll) {
+        return root;
+      }
+      root.querySelectorAll('.quick-ask-media-info').forEach((element) => element.remove());
+      return root;
+    }
+
     function extractTextWithLineBreaks(range) {
-      let fragment = range.cloneContents();
+      let fragment = sanitizeFragment(range.cloneContents());
       let textParts = [];
 
       function traverseNodes(node) {
@@ -82,7 +90,17 @@ const mixin = {
       if (!contextText) {
         contextText = beforeBlockText;
       }
-      currentText = hasSelection ? selection.toString().trim() : (currentBlock.textContent || "").trim();
+      if (hasSelection) {
+        currentText = selection.toString().trim();
+      } else {
+        try {
+          const currentBlockRange = document.createRange();
+          currentBlockRange.selectNodeContents(currentBlock);
+          currentText = extractTextWithLineBreaks(currentBlockRange).trim();
+        } catch {
+          currentText = "";
+        }
+      }
     } else {
       const beforeCaretText = getBeforeCaretText();
       if (hasSelection) {

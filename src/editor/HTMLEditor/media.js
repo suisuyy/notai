@@ -90,6 +90,90 @@ const mixin = {
     };
   },
 
+  normalizeImageCaptureMetadata(mimeType = '', fallbackMimeType = '') {
+    const resolvedMimeType = (mimeType || fallbackMimeType || 'image/jpeg').toLowerCase();
+    if (resolvedMimeType.includes('png')) {
+      return {
+        mimeType: 'image/png',
+        fileExt: 'png',
+      };
+    }
+    if (resolvedMimeType.includes('webp')) {
+      return {
+        mimeType: 'image/webp',
+        fileExt: 'webp',
+      };
+    }
+    return {
+      mimeType: 'image/jpeg',
+      fileExt: 'jpg',
+    };
+  },
+
+  formatCompactFileSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return '0B';
+    }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024;
+      index += 1;
+    }
+    const decimals = value >= 10 || index === 0 ? 0 : 1;
+    return `${value.toFixed(decimals)}${units[index]}`;
+  },
+
+  createQuickAskMediaInfoLine({ fileExt = '', size = 0 } = {}) {
+    const details = [];
+    if (fileExt) {
+      details.push(String(fileExt).toLowerCase());
+    }
+    if (Number.isFinite(size) && size > 0) {
+      details.push(this.formatCompactFileSize(size));
+    }
+    return details.join(',');
+  },
+
+  createQuickAskMediaInfoElement(text = '') {
+    if (!text) {
+      return null;
+    }
+    const info = document.createElement('div');
+    info.className = 'quick-ask-media-info';
+    info.textContent = text;
+    return info;
+  },
+
+  createQuickAskInsertedMediaBlock(anchorNode = null, anchorRange = null) {
+    const block = this.addNewBlock(true, anchorNode, anchorRange);
+    if (!block) {
+      return null;
+    }
+    block.classList.add('media-block', 'quick-ask-media-block');
+    block.innerHTML = '';
+    return block;
+  },
+
+  emphasizeQuickAskInsertedBlock(block, focusElement = null) {
+    if (!block) {
+      return;
+    }
+
+    block.classList.remove('quick-ask-block-flash');
+    void block.offsetWidth;
+    block.classList.add('quick-ask-block-flash');
+    window.setTimeout(() => {
+      block.classList.remove('quick-ask-block-flash');
+    }, 2200);
+
+    const scrollTarget = focusElement || block;
+    window.setTimeout(() => {
+      scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }, 0);
+  },
+
   async createAudioRecorder(stream) {
     const primaryOptions = this.audioRecordOptions?.mimeType
       ? { ...this.audioRecordOptions }
@@ -395,6 +479,8 @@ const mixin = {
     this.quickAskVoiceActions = document.getElementById('quickAskVoiceActions');
     this.quickAskVoiceSendBtn = document.getElementById('quickAskVoiceSendBtn');
     this.quickAskVoiceCancelBtn = document.getElementById('quickAskVoiceCancelBtn');
+    this.quickAskCameraPreviewWrap = document.getElementById('quickAskCameraPreviewWrap');
+    this.quickAskCameraPreview = document.getElementById('quickAskCameraPreview');
 
     quickAskBtn.addEventListener('pointerdown', (event) => {
       this.handleQuickAskVoicePointerDown(event);
@@ -430,6 +516,160 @@ const mixin = {
     this._quickAskVoiceControlsBound = true;
   },
 
+  setupQuickAskCameraControls(quickAskCameraBtn) {
+    if (this._quickAskCameraControlsBound || !quickAskCameraBtn) {
+      return;
+    }
+
+    this.quickAskCameraButton = quickAskCameraBtn;
+    this.quickAskVoicePanel = this.quickAskVoicePanel || document.getElementById('quickAskVoicePanel');
+    this.quickAskVoiceTitle = this.quickAskVoiceTitle || document.getElementById('quickAskVoiceTitle');
+    this.quickAskVoiceHint = this.quickAskVoiceHint || document.getElementById('quickAskVoiceHint');
+    this.quickAskVoiceFormat = this.quickAskVoiceFormat || document.getElementById('quickAskVoiceFormat');
+    this.quickAskVoiceTimer = this.quickAskVoiceTimer || document.getElementById('quickAskVoiceTimer');
+    this.quickAskVoiceLockZone = this.quickAskVoiceLockZone || document.getElementById('quickAskVoiceLockZone');
+    this.quickAskVoiceActions = this.quickAskVoiceActions || document.getElementById('quickAskVoiceActions');
+    this.quickAskCameraPreviewWrap = this.quickAskCameraPreviewWrap || document.getElementById('quickAskCameraPreviewWrap');
+    this.quickAskCameraPreview = this.quickAskCameraPreview || document.getElementById('quickAskCameraPreview');
+
+    quickAskCameraBtn.addEventListener('pointerdown', (event) => {
+      this.handleQuickAskCameraPointerDown(event);
+    });
+
+    window.addEventListener('pointerup', (event) => {
+      this.handleQuickAskCameraPointerUp(event);
+    });
+
+    window.addEventListener('pointercancel', (event) => {
+      this.handleQuickAskCameraPointerCancel(event);
+    });
+
+    quickAskCameraBtn.addEventListener('click', async (event) => {
+      const state = this.quickAskCameraState;
+      if (state.suppressClick) {
+        state.suppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      await this.handleQuickAskCameraCapture();
+    });
+
+    this._quickAskCameraControlsBound = true;
+  },
+
+  setQuickAskCameraButtonMode(mode = 'idle') {
+    if (!this.quickAskCameraButton) {
+      return;
+    }
+    this.quickAskCameraButton.classList.toggle('is-recording', mode === 'recording');
+    this.quickAskCameraButton.innerHTML = mode === 'recording'
+      ? '<i class="fas fa-circle"></i>'
+      : '<i class="fas fa-camera"></i>';
+  },
+
+  async showQuickAskCameraPreview(stream) {
+    if (!this.quickAskCameraPreviewWrap || !this.quickAskCameraPreview) {
+      return;
+    }
+    this.quickAskVoicePanel?.classList.add('camera-mode');
+    this.quickAskCameraPreviewWrap.hidden = false;
+    this.quickAskCameraPreview.srcObject = stream;
+    try {
+      await this.quickAskCameraPreview.play();
+    } catch (_) { }
+  },
+
+  hideQuickAskCameraPreview() {
+    if (this.quickAskCameraPreview) {
+      try {
+        this.quickAskCameraPreview.pause?.();
+      } catch (_) { }
+      this.quickAskCameraPreview.srcObject = null;
+    }
+    if (this.quickAskCameraPreviewWrap) {
+      this.quickAskCameraPreviewWrap.hidden = true;
+    }
+  },
+
+  handleQuickAskCameraPointerDown(event) {
+    if (!this.quickAskCameraButton || event.button !== 0) {
+      return;
+    }
+
+    const state = this.quickAskCameraState;
+    if (state.busy || state.active || this.quickAskVoiceState?.busy) {
+      return;
+    }
+
+    state.pointerId = event.pointerId;
+    state.pressStartedAt = Date.now();
+    state.promptContext = this.getBlockContext();
+    state.releaseRequested = false;
+    state.suppressClick = false;
+    clearTimeout(state.holdTimerId);
+    state.holdTimerId = window.setTimeout(() => {
+      this.startQuickAskCameraHoldCapture();
+    }, this.quickAskCameraLongPressMs || 240);
+
+    try {
+      this.quickAskCameraButton.setPointerCapture?.(event.pointerId);
+    } catch (_) { }
+  },
+
+  async handleQuickAskCameraPointerUp(event) {
+    const state = this.quickAskCameraState;
+    if (event.pointerId !== state.pointerId) {
+      return;
+    }
+
+    clearTimeout(state.holdTimerId);
+    state.holdTimerId = 0;
+
+    try {
+      if (this.quickAskCameraButton?.hasPointerCapture?.(event.pointerId)) {
+        this.quickAskCameraButton.releasePointerCapture(event.pointerId);
+      }
+    } catch (_) { }
+
+    if (!state.active && !state.starting) {
+      state.pointerId = null;
+      return;
+    }
+
+    event.preventDefault();
+    state.suppressClick = true;
+
+    if (state.starting && !state.recorder) {
+      state.releaseRequested = true;
+      return;
+    }
+
+    await this.completeQuickAskCameraHoldCapture({ send: true });
+  },
+
+  async handleQuickAskCameraPointerCancel(event) {
+    const state = this.quickAskCameraState;
+    if (event.pointerId !== state.pointerId) {
+      return;
+    }
+
+    clearTimeout(state.holdTimerId);
+    state.holdTimerId = 0;
+    state.suppressClick = true;
+
+    if (state.starting && !state.recorder) {
+      state.active = false;
+      await this.resetQuickAskCameraCaptureUI();
+      return;
+    }
+
+    await this.completeQuickAskCameraHoldCapture({
+      send: false,
+      discard: true,
+    });
+  },
+
   handleQuickAskVoicePointerDown(event) {
     if (!this.quickAskButton || event.button !== 0) {
       return;
@@ -454,6 +694,8 @@ const mixin = {
     state.formatLabel = this.audioRecordLabel;
     state.inputAudioFormat = this.audioInputFormat;
     state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
+    state.promptContext = this.getBlockContext();
+    state.releaseRequested = null;
 
     try {
       this.quickAskButton.setPointerCapture?.(event.pointerId);
@@ -664,6 +906,8 @@ const mixin = {
       let inputAudioBase64 = null;
       let insertedAudioPayload = null;
       let aiAudioPayload = null;
+      const promptContext = state.promptContext;
+      const stateInputAudioFormat = state.inputAudioFormat;
 
       try {
         clearInterval(state.timerIntervalId);
@@ -716,15 +960,19 @@ const mixin = {
       if (inputAudioBase64) {
         await this.handleQuickAsk({
           inputAudioBase64: includeAudio ? inputAudioBase64 : null,
-          inputAudioFormat: aiAudioPayload?.inputAudioFormat || state.inputAudioFormat || this.audioInputFormat,
+          inputAudioFormat: aiAudioPayload?.inputAudioFormat || stateInputAudioFormat || this.audioInputFormat,
           textPrompt: '',
           ignoreCurrentBlockAudio: !includeAudio,
+          explicitCurrentText: promptContext?.currentText || '',
+          explicitContextText: promptContext?.contextText || '',
         });
         return;
       }
 
       await this.handleQuickAsk({
         ignoreCurrentBlockAudio: true,
+        explicitCurrentText: promptContext?.currentText || '',
+        explicitContextText: promptContext?.contextText || '',
       });
     })();
 
@@ -801,8 +1049,11 @@ const mixin = {
     state.formatLabel = this.audioRecordLabel;
     state.inputAudioFormat = this.audioInputFormat;
     state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
+    state.promptContext = null;
+    state.releaseRequested = null;
 
     this.quickAskVoicePanel?.classList.remove('visible', 'locked');
+    this.quickAskVoicePanel?.classList.remove('camera-mode');
     this.quickAskVoicePanel?.setAttribute('aria-hidden', 'true');
     this.quickAskVoiceLockZone?.classList.remove('active');
     if (this.quickAskVoiceTitle) {
@@ -820,6 +1071,7 @@ const mixin = {
     if (this.quickAskVoiceTimer) {
       this.quickAskVoiceTimer.textContent = '0:00';
     }
+    this.hideQuickAskCameraPreview();
 
     this.setQuickAskButtonMode('idle');
   },
@@ -841,6 +1093,7 @@ const mixin = {
     const metadata = this.normalizeAudioRecordingMetadata(mimeType, blob?.type);
     return {
       ...metadata,
+      size: blob?.size || 0,
       base64: await this.convertBlobToBase64(blob),
     };
   },
@@ -919,6 +1172,8 @@ const mixin = {
         blob,
         base64: await this.convertBlobToBase64(blob),
         mimeType: 'image/jpeg',
+        size: blob.size,
+        ...this.normalizeImageCaptureMetadata('image/jpeg'),
       };
     } finally {
       if (video) {
@@ -931,73 +1186,281 @@ const mixin = {
     }
   },
 
-  insertQuickAskImageIntoCurrentBlock(base64Image, mimeType = 'image/jpeg') {
+  async captureQuickAskPreviewFrame(videoElement) {
+    if (!videoElement) {
+      return null;
+    }
+
+    const width = videoElement.videoWidth || videoElement.clientWidth || 1280;
+    const height = videoElement.videoHeight || videoElement.clientHeight || 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    context.drawImage(videoElement, 0, 0, width, height);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    if (!blob) {
+      return null;
+    }
+
+    return {
+      blob,
+      base64: await this.convertBlobToBase64(blob),
+      mimeType: 'image/jpeg',
+      size: blob.size,
+      ...this.normalizeImageCaptureMetadata('image/jpeg'),
+    };
+  },
+
+  startQuickAskCameraTimer() {
+    const state = this.quickAskCameraState;
+    clearInterval(state.timerIntervalId);
+    const tick = () => {
+      if (!this.quickAskVoiceTimer) {
+        return;
+      }
+      const startedAt = state.pressStartedAt || Date.now();
+      const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      const minutes = Math.floor(elapsed / 60).toString();
+      const seconds = (elapsed % 60).toString().padStart(2, '0');
+      this.quickAskVoiceTimer.textContent = `${minutes}:${seconds}`;
+    };
+    tick();
+    state.timerIntervalId = setInterval(tick, 250);
+  },
+
+  async startQuickAskCameraHoldCapture() {
+    const state = this.quickAskCameraState;
+    if (state.busy || state.active || this.quickAskVoiceState?.busy || !state.pointerId) {
+      return;
+    }
+
+    state.busy = true;
+    state.active = true;
+    state.starting = true;
+    state.releaseRequested = false;
+    state.chunks = [];
+    state.mimeType = '';
+    state.inputAudioFormat = this.audioInputFormat;
+    state.formatLabel = this.audioRecordLabel;
+    this.setQuickAskCameraButtonMode('recording');
+    this.showQuickAskVoicePanelState({
+      title: 'Opening camera...',
+      hint: 'Hold to talk and frame the shot. Release to send.',
+      formatText: 'Audio: detecting...',
+      timerText: '0:00',
+    });
+
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      });
+
+      if (!state.active) {
+        videoStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      state.videoStream = videoStream;
+      await this.showQuickAskCameraPreview(videoStream);
+
+      const audioStream = await navigator.mediaDevices.getUserMedia(this.getQuickAskAudioConstraints());
+      if (!state.active) {
+        audioStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const { mediaRecorder, metadata, runtimeMimeType } = await this.createAudioRecorder(audioStream);
+      state.audioStream = audioStream;
+      state.recorder = mediaRecorder;
+      state.mimeType = runtimeMimeType || metadata.mimeType;
+      state.inputAudioFormat = metadata.inputAudioFormat;
+      state.formatLabel = metadata.formatLabel;
+      state.chunks = [];
+      mediaRecorder.addEventListener('dataavailable', (event) => {
+        if (event.data && event.data.size > 0) {
+          state.chunks.push(event.data);
+        }
+      });
+      mediaRecorder.start(250);
+      this.startQuickAskCameraTimer();
+      this.showQuickAskVoicePanelState({
+        title: 'Camera + audio',
+        hint: 'Speak while framing. Release to send the latest frame.',
+        formatText: `Audio: ${metadata.formatLabel}`,
+      });
+
+      if (state.releaseRequested) {
+        await this.completeQuickAskCameraHoldCapture({ send: true });
+      }
+    } catch (error) {
+      console.error('Error starting quick ask camera hold capture:', error);
+      this.showToast('Unable to access camera or microphone');
+      await this.resetQuickAskCameraCaptureUI();
+    } finally {
+      state.starting = false;
+    }
+  },
+
+  async resetQuickAskCameraCaptureUI() {
+    const state = this.quickAskCameraState;
+    clearTimeout(state.holdTimerId);
+    clearInterval(state.timerIntervalId);
+    state.holdTimerId = 0;
+    state.timerIntervalId = 0;
+    state.videoStream?.getTracks?.()?.forEach((track) => track.stop());
+    state.audioStream?.getTracks?.()?.forEach((track) => track.stop());
+    state.active = false;
+    state.busy = false;
+    state.starting = false;
+    state.pointerId = null;
+    state.pressStartedAt = 0;
+    state.videoStream = null;
+    state.audioStream = null;
+    state.recorder = null;
+    state.chunks = [];
+    state.mimeType = '';
+    state.inputAudioFormat = this.audioInputFormat;
+    state.formatLabel = this.audioRecordLabel;
+    state.promptContext = null;
+    state.releaseRequested = false;
+    this.hideQuickAskCameraPreview();
+    if (this.quickAskVoicePanel?.classList.contains('camera-mode')) {
+      this.quickAskVoicePanel.classList.remove('visible', 'locked', 'camera-mode');
+      this.quickAskVoicePanel.setAttribute('aria-hidden', 'true');
+      this.quickAskVoiceLockZone?.classList.remove('active');
+    }
+    if (this.quickAskVoiceTitle) {
+      this.quickAskVoiceTitle.textContent = 'Recording...';
+    }
+    if (this.quickAskVoiceHint) {
+      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock.';
+    }
+    if (this.quickAskVoiceFormat) {
+      this.quickAskVoiceFormat.textContent = 'Format: -';
+    }
+    if (this.quickAskVoiceTimer) {
+      this.quickAskVoiceTimer.textContent = '0:00';
+    }
+    this.setQuickAskCameraButtonMode('idle');
+  },
+
+  async completeQuickAskCameraHoldCapture(options = {}) {
+    const state = this.quickAskCameraState;
+    const { send = true, discard = false } = options;
+    if (!state.busy && !state.active && !state.starting) {
+      return;
+    }
+
+    clearTimeout(state.holdTimerId);
+    state.holdTimerId = 0;
+    state.active = false;
+
+    let imagePayload = null;
+    let recordedBlob = null;
+    let insertedAudioPayload = null;
+    let aiAudioPayload = null;
+    const promptContext = state.promptContext;
+    const stateInputAudioFormat = state.inputAudioFormat;
+
+    try {
+      imagePayload = await this.captureQuickAskPreviewFrame(this.quickAskCameraPreview);
+
+      if (state.recorder && state.recorder.state !== 'inactive') {
+        recordedBlob = await new Promise((resolve) => {
+          const finalize = () => {
+            const chunkMimeType = state.chunks.find((chunk) => chunk?.type)?.type || state.mimeType || this.audioRecordType || 'audio/webm';
+            resolve(state.chunks.length ? new Blob(state.chunks, { type: chunkMimeType }) : null);
+          };
+          state.recorder.addEventListener('stop', finalize, { once: true });
+          state.recorder.stop();
+        });
+      } else if (state.chunks.length) {
+        const chunkMimeType = state.chunks.find((chunk) => chunk?.type)?.type || state.mimeType || this.audioRecordType || 'audio/webm';
+        recordedBlob = new Blob(state.chunks, { type: chunkMimeType });
+      }
+
+      if (send && !discard && recordedBlob?.size) {
+        insertedAudioPayload = await this.prepareRecordedAudioForBlock(recordedBlob, state.mimeType);
+        if (this.shouldIncludeQuickAskCameraAudio()) {
+          aiAudioPayload = await this.prepareRecordedAudioForAI(recordedBlob, state.mimeType);
+        }
+      }
+    } catch (error) {
+      console.error('Error completing quick ask camera hold capture:', error);
+      this.showToast('Unable to finish camera ask');
+    } finally {
+      await this.resetQuickAskCameraCaptureUI();
+    }
+
+    if (!send || discard) {
+      return;
+    }
+
+    if (imagePayload) {
+      this.insertQuickAskImageIntoCurrentBlock(imagePayload.base64, imagePayload.mimeType, imagePayload);
+    }
+    if (insertedAudioPayload) {
+      this.insertQuickAskAudioIntoCurrentBlock(insertedAudioPayload.base64, insertedAudioPayload);
+    }
+
+    await this.handleQuickAsk({
+      inputAudioBase64: aiAudioPayload?.base64 || null,
+      inputAudioFormat: aiAudioPayload?.inputAudioFormat || stateInputAudioFormat || this.audioInputFormat,
+      inputImageBase64: imagePayload?.base64 || null,
+      inputImageMimeType: imagePayload?.mimeType || 'image/jpeg',
+      ignoreCurrentBlockAudio: !aiAudioPayload,
+      explicitCurrentText: promptContext?.currentText || '',
+      explicitContextText: promptContext?.contextText || '',
+    });
+  },
+
+  shouldIncludeQuickAskCameraAudio() {
+    return true;
+  },
+
+  insertQuickAskImageIntoCurrentBlock(base64Image, mimeType = 'image/jpeg', metadata = {}) {
     if (!base64Image || !this.editor) {
       return null;
     }
 
-    const dataUrl = `data:${mimeType};base64,${base64Image}`;
+    const normalizedMetadata = {
+      ...this.normalizeImageCaptureMetadata(mimeType, mimeType),
+      ...metadata,
+    };
+    const dataUrl = `data:${normalizedMetadata.mimeType};base64,${base64Image}`;
     const selection = window.getSelection();
     const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
-
-    let block = null;
-    if (anchorNode) {
-      const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement;
-      const candidate = anchorElement?.closest?.('.block');
-      if (candidate && this.editor.contains(candidate)) {
-        block = candidate;
-      }
-    }
-
-    if (!block && this.currentBlock && this.editor.contains(this.currentBlock)) {
-      block = this.currentBlock;
-    }
-
-    if (!block) {
-      block = document.createElement('div');
-      block.className = 'block';
-      block.innerHTML = '<br><br><br><br>';
-      block.classList.add('highlight');
-      setTimeout(() => {
-        block.classList.remove('highlight');
-      }, 1000);
-
-      const spacerAfter = document.createElement('br');
-      const firstChild = this.editor.firstChild;
-      if (firstChild) {
-        this.editor.insertBefore(block, firstChild);
-        this.editor.insertBefore(spacerAfter, block.nextSibling);
-      } else {
-        this.editor.appendChild(block);
-        this.editor.appendChild(spacerAfter);
-      }
-    }
+    const block = this.createQuickAskInsertedMediaBlock(anchorNode, anchorRange);
 
     if (!block) {
       return null;
     }
 
+    const wrapper = document.createElement('div');
+    wrapper.className = 'quick-ask-media-entry quick-ask-image-entry';
     const image = document.createElement('img');
     image.src = dataUrl;
     image.alt = 'Quick camera capture';
     image.classList.add('quick-shot-image');
+    wrapper.appendChild(image);
 
-    const hasMeaningfulContent =
-      !!block.querySelector('img, audio, video, iframe, table, pre, code') ||
-      !!block.textContent.trim();
-
-    if (!hasMeaningfulContent) {
-      block.innerHTML = '';
-    } else {
-      const lastChild = block.lastChild;
-      if (!(lastChild && lastChild.nodeName === 'BR')) {
-        block.appendChild(document.createElement('br'));
-      }
+    const info = this.createQuickAskMediaInfoElement(
+      this.createQuickAskMediaInfoLine({
+        fileExt: normalizedMetadata.fileExt,
+        size: normalizedMetadata.size,
+      })
+    );
+    if (info) {
+      wrapper.appendChild(info);
     }
 
-    block.appendChild(image);
-    block.appendChild(document.createElement('br'));
+    block.appendChild(wrapper);
 
     setTimeout(() => {
       image.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
@@ -1023,6 +1486,11 @@ const mixin = {
     if (triggerButton?.disabled) {
       return;
     }
+    if (this.quickAskCameraState?.busy || this.quickAskVoiceState?.busy) {
+      return;
+    }
+
+    const promptContext = this.getBlockContext();
 
     try {
       if (triggerButton) {
@@ -1031,10 +1499,12 @@ const mixin = {
       }
 
       const capture = await this.captureQuickAskPhoto();
-      this.insertQuickAskImageIntoCurrentBlock(capture.base64, capture.mimeType);
+      this.insertQuickAskImageIntoCurrentBlock(capture.base64, capture.mimeType, capture);
       await this.handleQuickAsk({
         inputImageBase64: capture.base64,
         inputImageMimeType: capture.mimeType,
+        explicitCurrentText: promptContext?.currentText || '',
+        explicitContextText: promptContext?.contextText || '',
       });
     } catch (error) {
       console.error('Quick camera ask failed:', error);
@@ -1178,48 +1648,31 @@ const mixin = {
     const selection = window.getSelection();
     const anchorRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const anchorNode = anchorRange?.commonAncestorContainer || selection?.anchorNode || null;
-
-    let block = null;
-    if (anchorNode) {
-      const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement;
-      const candidate = anchorElement?.closest?.('.block');
-      if (candidate && this.editor.contains(candidate)) {
-        block = candidate;
-      }
-    }
-
-    if (!block && this.currentBlock && this.editor.contains(this.currentBlock)) {
-      block = this.currentBlock;
-    }
-
-    if (!block) {
-      block = this.addNewBlock(true, anchorNode, anchorRange);
-    }
+    const block = this.createQuickAskInsertedMediaBlock(anchorNode, anchorRange);
 
     if (!block) {
       return null;
     }
 
+    const wrapper = document.createElement('div');
+    wrapper.className = 'quick-ask-media-entry quick-ask-audio-entry';
     const audio = document.createElement('audio');
     audio.controls = true;
     audio.src = dataUrl;
     audio.setAttribute('type', normalizedMetadata.mimeType);
+    wrapper.appendChild(audio);
 
-    const hasMeaningfulContent =
-      !!block.querySelector('img, audio, video, iframe, table, pre, code') ||
-      !!block.textContent.trim();
-
-    if (!hasMeaningfulContent) {
-      block.innerHTML = '';
-    } else {
-      const lastChild = block.lastChild;
-      if (!(lastChild && lastChild.nodeName === 'BR')) {
-        block.appendChild(document.createElement('br'));
-      }
+    const info = this.createQuickAskMediaInfoElement(
+      this.createQuickAskMediaInfoLine({
+        fileExt: normalizedMetadata.fileExt,
+        size: normalizedMetadata.size,
+      })
+    );
+    if (info) {
+      wrapper.appendChild(info);
     }
 
-    block.appendChild(audio);
-    block.appendChild(document.createElement('br'));
+    block.appendChild(wrapper);
 
     this.currentBlock = block;
     this.showBlockControls?.(block);
@@ -1232,6 +1685,8 @@ const mixin = {
       selection?.removeAllRanges();
       selection?.addRange(range);
     } catch (_) { }
+
+    this.emphasizeQuickAskInsertedBlock(block, audio);
 
     return audio;
   },

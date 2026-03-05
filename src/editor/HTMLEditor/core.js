@@ -1140,9 +1140,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         this.setupQuickAskVoiceControls(quickAskBtn);
       }
       if (quickAskCameraBtn) {
-        quickAskCameraBtn.addEventListener('click', async () => {
-          await this.handleQuickAskCameraCapture();
-        });
+        this.setupQuickAskCameraControls(quickAskCameraBtn);
       }
 
       // Sidebar toggle

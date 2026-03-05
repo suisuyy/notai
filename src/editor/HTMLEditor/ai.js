@@ -94,6 +94,7 @@ const mixin = {
       });
     });
     this.setupAIRequestDetailsModal();
+    this.setupAIRequestPreviewModal();
   },
 
   updateModelDropdowns() {
@@ -199,6 +200,320 @@ const mixin = {
     });
 
     this._aiRequestDetailsModalBound = true;
+  },
+
+  setupAIRequestPreviewModal() {
+    if (this._aiRequestPreviewModalBound) {
+      return;
+    }
+
+    const modal = document.getElementById('aiRequestPreviewModal');
+    const mediaModal = document.getElementById('aiRequestPreviewMediaModal');
+    if (!modal) {
+      return;
+    }
+
+    const includeSystemPromptCheckbox = document.getElementById('aiRequestPreviewIncludeSystemPrompt');
+    const includeContextCheckbox = document.getElementById('aiRequestPreviewIncludeContext');
+    const systemPromptSection = document.getElementById('aiRequestPreviewSystemPromptSection');
+    const contextSection = document.getElementById('aiRequestPreviewContextSection');
+    const systemPromptField = document.getElementById('aiRequestPreviewSystemPrompt');
+    const contextField = document.getElementById('aiRequestPreviewContextPrompt');
+    const userPromptField = document.getElementById('aiRequestPreviewUserPrompt');
+    const mediaList = document.getElementById('aiRequestPreviewMediaList');
+    const sendButton = document.getElementById('aiRequestPreviewSendBtn');
+    const cancelButton = document.getElementById('aiRequestPreviewCancelBtn');
+    const closeIcon = modal.querySelector('[data-close-ai-preview]');
+    const mediaCloseButton = document.getElementById('aiRequestPreviewMediaCloseBtn');
+    const mediaCloseIcon = mediaModal?.querySelector('[data-close-ai-preview-media]');
+    const mediaViewer = document.getElementById('aiRequestPreviewMediaViewer');
+
+    const updateFieldState = (checkbox, field) => {
+      if (!field) {
+        return;
+      }
+      field.disabled = !(checkbox && checkbox.checked);
+    };
+
+    const setSectionCollapsed = (section, collapsed) => {
+      if (!section) {
+        return;
+      }
+      section.classList.toggle('is-collapsed', !!collapsed);
+      const button = section.querySelector('.ai-request-preview-fold-btn');
+      if (button) {
+        button.textContent = collapsed ? 'Expand' : 'Collapse';
+      }
+    };
+
+    const closeMediaModal = () => {
+      if (mediaViewer) {
+        mediaViewer.querySelectorAll('audio, video').forEach((element) => {
+          try {
+            element.pause();
+          } catch (_) { }
+        });
+        mediaViewer.innerHTML = '';
+      }
+      if (mediaModal) {
+        mediaModal.style.display = 'none';
+        mediaModal.setAttribute('aria-hidden', 'true');
+      }
+    };
+
+    const closeModal = (result = null) => {
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+      closeMediaModal();
+      if (this._aiRequestPreviewResolve) {
+        const resolve = this._aiRequestPreviewResolve;
+        this._aiRequestPreviewResolve = null;
+        resolve(result);
+      }
+    };
+
+    includeSystemPromptCheckbox?.addEventListener('change', () => updateFieldState(includeSystemPromptCheckbox, systemPromptField));
+    includeContextCheckbox?.addEventListener('change', () => updateFieldState(includeContextCheckbox, contextField));
+    modal.querySelectorAll('[data-ai-preview-toggle-section]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const sectionKey = button.getAttribute('data-ai-preview-toggle-section');
+        const targetSection = sectionKey === 'system' ? systemPromptSection : contextSection;
+        if (!targetSection) {
+          return;
+        }
+        setSectionCollapsed(targetSection, !targetSection.classList.contains('is-collapsed'));
+      });
+    });
+
+    mediaList?.addEventListener('click', (event) => {
+      const button = event.target instanceof HTMLElement
+        ? event.target.closest('[data-ai-preview-open-media]')
+        : null;
+      if (!button) {
+        return;
+      }
+      const index = Number(button.getAttribute('data-media-index'));
+      const item = this._aiRequestPreviewState?.mediaItems?.[index];
+      if (!item) {
+        return;
+      }
+      this.openAIRequestPreviewMediaModal(item);
+    });
+
+    sendButton?.addEventListener('click', () => {
+      const mediaItems = Array.from(mediaList?.querySelectorAll('.ai-request-preview-media-item') || []).map((element, index) => {
+        const item = this._aiRequestPreviewState?.mediaItems?.[index];
+        const checkbox = element.querySelector('.ai-request-preview-media-toggle');
+        return item ? { ...item, enabled: !!checkbox?.checked } : null;
+      }).filter(Boolean);
+
+      closeModal({
+        includeSystemPrompt: !!includeSystemPromptCheckbox?.checked,
+        systemPrompt: systemPromptField?.value || '',
+        includeContext: !!includeContextCheckbox?.checked,
+        contextPrompt: contextField?.value || '',
+        prompt: userPromptField?.value || '',
+        mediaItems,
+      });
+    });
+    cancelButton?.addEventListener('click', () => closeModal(null));
+    closeIcon?.addEventListener('click', () => closeModal(null));
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeModal(null);
+      }
+    });
+    mediaCloseButton?.addEventListener('click', closeMediaModal);
+    mediaCloseIcon?.addEventListener('click', closeMediaModal);
+    mediaModal?.addEventListener('click', (event) => {
+      if (event.target === mediaModal) {
+        closeMediaModal();
+      }
+    });
+
+    this._aiRequestPreviewModalBound = true;
+    this._aiRequestPreviewUpdateFieldState = updateFieldState;
+    this._aiRequestPreviewCloseMediaModal = closeMediaModal;
+    this._aiRequestPreviewSetSectionCollapsed = setSectionCollapsed;
+  },
+
+  renderAIRequestPreviewMediaItems(mediaItems = []) {
+    const mediaSection = document.getElementById('aiRequestPreviewMediaSection');
+    const mediaList = document.getElementById('aiRequestPreviewMediaList');
+    if (!mediaSection || !mediaList) {
+      return;
+    }
+
+    mediaList.innerHTML = '';
+    if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
+      mediaSection.style.display = 'none';
+      return;
+    }
+
+    mediaSection.style.display = '';
+
+    mediaItems.forEach((item, index) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'ai-request-preview-media-item';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'ai-request-preview-media-toggle';
+      checkbox.checked = item.enabled !== false;
+
+      const previewButton = document.createElement('button');
+      previewButton.type = 'button';
+      previewButton.className = 'ai-request-preview-media-button';
+      previewButton.setAttribute('data-ai-preview-open-media', 'true');
+      previewButton.setAttribute('data-media-index', `${index}`);
+      previewButton.setAttribute('title', `Preview ${item.label || item.type || 'media'}`);
+
+      if (item.type === 'image' && item.previewSrc) {
+        const image = document.createElement('img');
+        image.src = item.previewSrc;
+        image.alt = item.label || 'Image preview';
+        previewButton.appendChild(image);
+      } else {
+        const icon = document.createElement('span');
+        icon.className = 'ai-request-preview-media-icon';
+        icon.innerHTML = item.type === 'audio'
+          ? '<i class="fas fa-volume-up"></i>'
+          : item.type === 'video'
+            ? '<i class="fas fa-video"></i>'
+            : '<i class="fas fa-file"></i>';
+        previewButton.appendChild(icon);
+      }
+
+      const info = document.createElement('div');
+      info.className = 'ai-request-preview-media-info';
+
+      const name = document.createElement('div');
+      name.className = 'ai-request-preview-media-name';
+      name.textContent = item.label || item.type || 'Media';
+
+      const type = document.createElement('div');
+      type.className = 'ai-request-preview-media-type';
+      type.textContent = item.description || '';
+
+      info.append(name, type);
+      wrapper.append(checkbox, previewButton, info);
+      mediaList.appendChild(wrapper);
+    });
+  },
+
+  openAIRequestPreviewMediaModal(item = {}) {
+    const mediaModal = document.getElementById('aiRequestPreviewMediaModal');
+    const mediaViewer = document.getElementById('aiRequestPreviewMediaViewer');
+    const mediaTitle = document.getElementById('aiRequestPreviewMediaTitle');
+    if (!mediaModal || !mediaViewer) {
+      return;
+    }
+
+    mediaViewer.innerHTML = '';
+    if (mediaTitle) {
+      mediaTitle.textContent = item.label || 'Media Preview';
+    }
+
+    const src = item.previewSrc || item.requestSource || '';
+    if (!src) {
+      const empty = document.createElement('div');
+      empty.className = 'ai-request-preview-media-empty';
+      empty.textContent = 'Preview is not available.';
+      mediaViewer.appendChild(empty);
+    } else if (item.type === 'image') {
+      const image = document.createElement('img');
+      image.src = src;
+      image.alt = item.label || 'Image preview';
+      mediaViewer.appendChild(image);
+    } else if (item.type === 'audio') {
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.autoplay = true;
+      audio.src = src;
+      mediaViewer.appendChild(audio);
+    } else if (item.type === 'video') {
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.src = src;
+      mediaViewer.appendChild(video);
+    }
+
+    mediaModal.style.display = 'block';
+    mediaModal.setAttribute('aria-hidden', 'false');
+  },
+
+  async openAIRequestPreviewModal(preview = {}) {
+    this.setupAIRequestPreviewModal();
+
+    const modal = document.getElementById('aiRequestPreviewModal');
+    const meta = document.getElementById('aiRequestPreviewMeta');
+    const includeSystemPromptCheckbox = document.getElementById('aiRequestPreviewIncludeSystemPrompt');
+    const includeContextCheckbox = document.getElementById('aiRequestPreviewIncludeContext');
+    const systemPromptField = document.getElementById('aiRequestPreviewSystemPrompt');
+    const contextField = document.getElementById('aiRequestPreviewContextPrompt');
+    const userPromptField = document.getElementById('aiRequestPreviewUserPrompt');
+    if (!modal || !systemPromptField || !contextField || !userPromptField) {
+      return {
+        includeSystemPrompt: preview.includeSystemPrompt ?? false,
+        systemPrompt: preview.systemPrompt || '',
+        includeContext: preview.includeContext ?? false,
+        contextPrompt: preview.contextPrompt || '',
+        prompt: preview.prompt || '',
+        mediaItems: preview.mediaItems || [],
+      };
+    }
+
+    if (this._aiRequestPreviewResolve) {
+      this._aiRequestPreviewResolve(null);
+      this._aiRequestPreviewResolve = null;
+    }
+
+    const summaryParts = [];
+    if (Array.isArray(preview.models) && preview.models.length > 0) {
+      summaryParts.push(`Models: ${preview.models.join(', ')}`);
+    }
+    if (preview.action) {
+      summaryParts.push(`Action: ${preview.action}`);
+    }
+    if (preview.useComment) {
+      summaryParts.push('Reply as comment');
+    }
+    if (Array.isArray(preview.mediaItems) && preview.mediaItems.length > 0) {
+      summaryParts.push(`Media: ${preview.mediaItems.length}`);
+    }
+
+    if (meta) {
+      meta.textContent = summaryParts.join(' | ');
+    }
+    this._aiRequestPreviewState = {
+      mediaItems: Array.isArray(preview.mediaItems)
+        ? preview.mediaItems.map((item) => ({ ...item }))
+        : [],
+    };
+    includeSystemPromptCheckbox.checked = preview.includeSystemPrompt ?? false;
+    includeContextCheckbox.checked = preview.includeContext ?? false;
+    systemPromptField.value = preview.systemPrompt || '';
+    contextField.value = preview.contextPrompt || '';
+    userPromptField.value = preview.prompt || '';
+    this.renderAIRequestPreviewMediaItems(this._aiRequestPreviewState.mediaItems);
+    this._aiRequestPreviewUpdateFieldState?.(includeSystemPromptCheckbox, systemPromptField);
+    this._aiRequestPreviewUpdateFieldState?.(includeContextCheckbox, contextField);
+    this._aiRequestPreviewSetSectionCollapsed?.(document.getElementById('aiRequestPreviewSystemPromptSection'), true);
+    this._aiRequestPreviewSetSectionCollapsed?.(document.getElementById('aiRequestPreviewContextSection'), true);
+    this._aiRequestPreviewCloseMediaModal?.();
+    modal.style.display = 'block';
+    modal.setAttribute('aria-hidden', 'false');
+
+    window.setTimeout(() => {
+      userPromptField.focus();
+      userPromptField.setSelectionRange(userPromptField.value.length, userPromptField.value.length);
+    }, 0);
+
+    return new Promise((resolve) => {
+      this._aiRequestPreviewResolve = resolve;
+    });
   },
 
   formatAIRequestDetails(runDetails) {
@@ -356,6 +671,7 @@ const mixin = {
   async handleAIAction(action, text, includeCurrentBlockMedia = false, options = {}) {
     const {
       skipContext = false,
+      explicitContextText = '',
       inputAudioBase64 = null,
       inputAudioFormat = null,
       inputImageBase64 = null,
@@ -387,13 +703,34 @@ const mixin = {
       }
     }
 
-    let promptWithContext = prompt;
-    if (!skipContext && enableContext && typeof this.getBlockContext === 'function') {
+    const describeMediaSource = (src = '', fallbackLabel = 'media') => {
+      if (!src) {
+        return fallbackLabel;
+      }
+      if (src.startsWith('data:')) {
+        const mimeType = src.slice(5).split(';')[0].trim();
+        return mimeType || `${fallbackLabel} data`;
+      }
+      if (src.startsWith('blob:')) {
+        return `${fallbackLabel} blob`;
+      }
+      try {
+        const parsed = new URL(src, window.location.href);
+        const lastSegment = parsed.pathname.split('/').pop() || fallbackLabel;
+        return lastSegment;
+      } catch {
+        return fallbackLabel;
+      }
+    };
+
+    let contextText = `${explicitContextText || ''}`.trim();
+    if (!contextText && !skipContext && enableContext && typeof this.getBlockContext === 'function') {
       const context = this.getBlockContext();
-      let contextText = (context?.contextText || '').trim();
+      contextText = (context?.contextText || '').trim();
 
       const extractTextWithLineBreaks = (sourceRange) => {
         const fragment = sourceRange.cloneContents();
+        fragment.querySelectorAll?.('.quick-ask-media-info').forEach((element) => element.remove());
         const textParts = [];
 
         const walk = (node) => {
@@ -455,12 +792,110 @@ const mixin = {
           contextText = contextText || "";
         }
       }
+    }
 
-      promptWithContext =
-        'Use <history> as context only.\n<history>\n' +
-        contextText +
-        '\n</history>\n\n' +
-        prompt;
+    const savedSelection = this.captureSelection ? this.captureSelection() : null;
+    const savedCurrentBlock = this.currentBlock;
+    const previewSelection = window.getSelection();
+    const previewRange = previewSelection && previewSelection.rangeCount > 0 ? previewSelection.getRangeAt(0) : null;
+    const previewSelectedContent = previewRange ? previewRange.cloneContents() : null;
+    const previewCurrentBlock = savedCurrentBlock;
+
+    const previewImageElement = previewSelectedContent?.querySelector('img') || (includeCurrentBlockMedia ? previewCurrentBlock?.querySelector('img') : null);
+    const previewAudioElement = ignoreCurrentBlockAudio
+      ? null
+      : (previewSelectedContent?.querySelector('audio') || (includeCurrentBlockMedia ? previewCurrentBlock?.querySelector('audio') : null));
+    const previewVideoElement = previewSelectedContent?.querySelector('video') || (includeCurrentBlockMedia ? previewCurrentBlock?.querySelector('video') : null);
+
+    const resolveAudioFormatFromSrc = (src = '', fallback = 'wav') => {
+      if (src.startsWith('data:audio/mp4') || src.startsWith('data:video/mp4')) {
+        return 'm4a';
+      }
+      if (src.startsWith('data:audio/wav')) {
+        return 'wav';
+      }
+      if (src.startsWith('data:audio/webm')) {
+        return 'webm';
+      }
+      return fallback;
+    };
+
+    const getAudioPreviewSrc = (base64, format) => {
+      const mimeType = format === 'm4a'
+        ? 'audio/mp4'
+        : format === 'webm'
+          ? 'audio/webm'
+          : 'audio/wav';
+      return `data:${mimeType};base64,${base64}`;
+    };
+
+    const previewMediaItems = [];
+    if (inputImageBase64) {
+      const imageSrc = `data:${inputImageMimeType || 'image/jpeg'};base64,${inputImageBase64}`;
+      previewMediaItems.push({
+        id: `image-${Date.now()}`,
+        type: 'image',
+        label: 'Image',
+        description: 'Captured image',
+        previewSrc: imageSrc,
+        requestSource: imageSrc,
+        sourceKind: 'dataUrl',
+        enabled: true,
+      });
+    } else if (previewImageElement?.src) {
+      previewMediaItems.push({
+        id: `image-${Date.now()}`,
+        type: 'image',
+        label: 'Image',
+        description: describeMediaSource(previewImageElement.currentSrc || previewImageElement.src, 'image'),
+        previewSrc: previewImageElement.currentSrc || previewImageElement.src,
+        requestSource: previewImageElement.currentSrc || previewImageElement.src,
+        sourceKind: (previewImageElement.currentSrc || previewImageElement.src || '').startsWith('data:') ? 'dataUrl' : 'url',
+        enabled: true,
+      });
+    }
+
+    const resolvedInputAudioFormat = inputAudioFormat || this.audioInputFormat || 'wav';
+    if (inputAudioBase64) {
+      previewMediaItems.push({
+        id: `audio-${Date.now()}`,
+        type: 'audio',
+        label: 'Audio',
+        description: 'Recorded audio',
+        previewSrc: getAudioPreviewSrc(inputAudioBase64, resolvedInputAudioFormat),
+        requestSource: inputAudioBase64,
+        sourceKind: 'rawBase64',
+        format: resolvedInputAudioFormat,
+        enabled: true,
+      });
+    } else if (previewAudioElement?.src) {
+      const audioSrc = previewAudioElement.src || '';
+      previewMediaItems.push({
+        id: `audio-${Date.now()}`,
+        type: 'audio',
+        label: 'Audio',
+        description: describeMediaSource(audioSrc, resolveAudioFormatFromSrc(audioSrc, resolvedInputAudioFormat)),
+        previewSrc: audioSrc,
+        requestSource: audioSrc,
+        sourceKind: audioSrc.startsWith('data:') ? 'dataUrl' : 'url',
+        format: resolveAudioFormatFromSrc(audioSrc, resolvedInputAudioFormat),
+        enabled: true,
+      });
+    }
+
+    const previewVideoSrc = previewVideoElement?.src || previewVideoElement?.querySelector?.('source')?.src || '';
+    if (previewVideoSrc) {
+      previewMediaItems.push({
+        id: `video-${Date.now()}`,
+        type: 'video',
+        label: 'Video',
+        description: describeMediaSource(previewVideoSrc, 'video'),
+        previewSrc: previewVideoSrc,
+        requestSource: previewVideoSrc,
+        sourceKind: previewVideoSrc.startsWith('data:') ? 'dataUrl' : 'url',
+        format: 'mpeg',
+        enabled: true,
+      });
     }
 
     // Get selected models from buttons
@@ -479,14 +914,46 @@ const mixin = {
       return;
     }
 
+    const reviewedRequest = await this.openAIRequestPreviewModal({
+      action,
+      models: selectedModels,
+      includeSystemPrompt: enableSystemPrompt,
+      includeContext: !skipContext && enableContext && Boolean(contextText),
+      useComment,
+      systemPrompt: enableSystemPrompt ? this.aiSettings.systemPrompt : '',
+      contextPrompt: contextText,
+      prompt,
+      mediaItems: previewMediaItems,
+    });
+
+    if (!reviewedRequest) {
+      if (savedSelection && this.restoreSelection) {
+        this.restoreSelection(savedSelection);
+      }
+      this.currentBlock = savedCurrentBlock;
+      return;
+    }
+
+    const reviewedSystemPrompt = `${reviewedRequest.systemPrompt || ''}`;
+    const reviewedContextPrompt = `${reviewedRequest.contextPrompt || ''}`;
+    const reviewedPrompt = `${reviewedRequest.prompt || ''}`;
+    const requestUsesSystemPrompt = !!reviewedRequest.includeSystemPrompt && reviewedSystemPrompt.trim().length > 0;
+    const requestUsesContext = !!reviewedRequest.includeContext && reviewedContextPrompt.trim().length > 0;
+    const finalPrompt = requestUsesContext
+      ? `<context>\n${reviewedContextPrompt}\n</context>\n\n${reviewedPrompt}`
+      : reviewedPrompt;
+
     const aiRunDetails = {
       action,
       startedAt: new Date().toISOString(),
       selectedText: text || '',
       useComment,
-      contextEnabled: !skipContext && enableContext,
-      systemPromptEnabled: enableSystemPrompt,
-      systemPrompt: enableSystemPrompt ? this.aiSettings.systemPrompt : '',
+      contextEnabled: requestUsesContext,
+      contextPrompt: reviewedContextPrompt,
+      systemPromptEnabled: requestUsesSystemPrompt,
+      systemPrompt: reviewedSystemPrompt,
+      userPrompt: reviewedPrompt,
+      mediaItems: Array.isArray(reviewedRequest.mediaItems) ? reviewedRequest.mediaItems.map((item) => ({ ...item })) : [],
       requests: [],
     };
     this._latestAIRequestDetails = aiRunDetails;
@@ -495,11 +962,16 @@ const mixin = {
     this.aiToolbar.style.display = 'none';
     this.aiToolbar.classList.remove("visible");
 
+    if (savedSelection && this.restoreSelection) {
+      this.restoreSelection(savedSelection);
+    }
+    this.currentBlock = savedCurrentBlock;
+
     // Get the current block where selection is  
     let selection = window.getSelection();
     let currentBlock = this.currentBlock;
-    const range = selection.getRangeAt(0);
-    const selectionRange = range.cloneRange ? range.cloneRange() : range;
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    const selectionRange = range && range.cloneRange ? range.cloneRange() : range;
     const selectionAnchorNode = range ? (range.endContainer || range.commonAncestorContainer) : null;
     let selectionAnchorBlock = null;
     if (selectionAnchorNode) {
@@ -510,27 +982,13 @@ const mixin = {
     }
     let commentedSpan = null;
 
-    // Check for image in selection or current block
     let imageUrl = null;
     let audioUrl = null;
     let audioFormat = inputAudioFormat || this.audioInputFormat || 'wav';
     let videoUrl = null;
-    let selectedContent = range.cloneContents();
-    let imgElement = selectedContent?.querySelector('img') || (includeCurrentBlockMedia ? currentBlock.querySelector('img') : null);
-
-    //check for audio and video
-    let audioElement = ignoreCurrentBlockAudio
-      ? null
-      : (selectedContent?.querySelector('audio') || (includeCurrentBlockMedia ? currentBlock.querySelector('audio') : null));
-    let videoElement = selectedContent?.querySelector('video') || (includeCurrentBlockMedia ? currentBlock.querySelector('video') : null);
-
-
-    if (inputImageBase64) {
-      imageUrl = `data:${inputImageMimeType || 'image/jpeg'};base64,${inputImageBase64}`;
-    }
-    else if (imgElement && imgElement.src) {
-      imageUrl = imgElement.src;
-    }
+    const selectedMediaItems = Array.isArray(reviewedRequest.mediaItems)
+      ? reviewedRequest.mediaItems.filter((item) => item && item.enabled)
+      : [];
 
     async function fetchAndConvertToBase64(url) {
       try {
@@ -549,43 +1007,38 @@ const mixin = {
       }
     }
 
-    if (inputAudioBase64) {
-      audioUrl = inputAudioBase64;
-      audioFormat = inputAudioFormat || this.audioInputFormat || 'wav';
+    const selectedImageItem = selectedMediaItems.find((item) => item.type === 'image');
+    if (selectedImageItem) {
+      imageUrl = selectedImageItem.requestSource || selectedImageItem.previewSrc || null;
     }
 
-    if (!inputAudioBase64 && audioElement && audioElement.src) {
-      const audioSrc = audioElement.src || '';
-      if (audioSrc.startsWith('data:audio/') || audioSrc.startsWith('data:video/mp4')) {
-        audioUrl = audioSrc.includes(',') ? audioSrc.split(',')[1] : audioSrc;
-      }
-      else if (this.aiSettings.compitable_mode) {
-        audioUrl = await fetchAndConvertToBase64(audioElement.src);
+    const selectedAudioItem = selectedMediaItems.find((item) => item.type === 'audio');
+    if (selectedAudioItem) {
+      audioFormat = selectedAudioItem.format || audioFormat;
+      const audioSource = selectedAudioItem.requestSource || '';
+      if (selectedAudioItem.sourceKind === 'rawBase64') {
+        audioUrl = audioSource;
+      } else if (selectedAudioItem.sourceKind === 'dataUrl') {
+        audioUrl = audioSource.includes(',') ? audioSource.split(',')[1] : audioSource;
+      } else if (this.aiSettings.compitable_mode && audioSource) {
+        audioUrl = await fetchAndConvertToBase64(audioSource);
         console.log("Base64 audio:", audioUrl);
+      } else {
+        audioUrl = audioSource;
       }
-      else {
-        audioUrl = audioElement.src;
-      }
-
-      if (audioSrc.startsWith('data:audio/mp4') || audioSrc.startsWith('data:video/mp4')) {
-        audioFormat = 'm4a';
-      } else if (audioSrc.startsWith('data:audio/wav')) {
-        audioFormat = 'wav';
-      } else if (audioSrc.startsWith('data:audio/webm')) {
-        audioFormat = 'webm';
-      }
-
     }
 
-    if (videoElement && videoElement.src) {
-      if (this.aiSettings.compitable_mode) {
-        videoUrl = await fetchAndConvertToBase64(videoElement.src);
+    const selectedVideoItem = selectedMediaItems.find((item) => item.type === 'video');
+    if (selectedVideoItem) {
+      const videoSource = selectedVideoItem.requestSource || '';
+      if (selectedVideoItem.sourceKind === 'dataUrl') {
+        videoUrl = videoSource.includes(',') ? videoSource.split(',')[1] : videoSource;
+      } else if (this.aiSettings.compitable_mode && videoSource) {
+        videoUrl = await fetchAndConvertToBase64(videoSource);
         console.log("Base64 video:", videoUrl);
+      } else {
+        videoUrl = videoSource;
       }
-      else {
-        videoUrl = videoElement.src || videoElement.querySelector('source').src;
-      }
-
     }
 
 
@@ -601,7 +1054,7 @@ const mixin = {
 
     // build content from audio, image, and video tags
     let content = (imageUrl || audioUrl || videoUrl) ? [
-      { type: "text", text: promptWithContext },
+      { type: "text", text: finalPrompt },
       ...(imageUrl ? [{
         type: "image_url",
         image_url: {
@@ -622,13 +1075,14 @@ const mixin = {
           format: 'mpeg'
         }
       }] : [])
-    ] : promptWithContext
+    ] : finalPrompt
 
     // Prepare a single comment group container if in comment mode
     let commentGroup = null;
     let commentId = null;
+    let underlinedElem = null;
     if (useComment) {
-      let underlinedElem = utils.underlineSelectedText();
+      underlinedElem = utils.underlineSelectedText();
       if (!underlinedElem && selection && selection.anchorNode) {
         const anchor = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
         const existingU = anchor && anchor.closest ? anchor.closest('u') : null;
@@ -670,8 +1124,8 @@ const mixin = {
     // Make parallel requests to selected models
     selectedModels.forEach(modelName => {
       const modelConfig = this.aiSettings.models.find(m => m.model_id === modelName);
-      const modelSystemPrompt = enableSystemPrompt
-        ? this.aiSettings.systemPrompt +
+      const modelSystemPrompt = requestUsesSystemPrompt
+        ? reviewedSystemPrompt +
         (modelName.includes('audio') ? "\n\n you are in audio mode now, you are talent voice actor, you can sing and speak in various tone,do not use html to reply me, only use image or video tag if needed, use <br> tag for newline" : "")
         : '';
       const requestDetail = {
@@ -687,7 +1141,7 @@ const mixin = {
 
       let requestBody = {
         messages: [
-          ...(enableSystemPrompt ? [{
+          ...(requestUsesSystemPrompt ? [{
             role: "system",
             content: modelSystemPrompt
           }] : []),
@@ -1028,18 +1482,23 @@ const mixin = {
       inputImageMimeType = 'image/jpeg',
       textPrompt = '',
       ignoreCurrentBlockAudio = false,
+      explicitCurrentText = '',
+      explicitContextText = '',
     } = options;
-    const context = this.getBlockContext();
+    const context = explicitCurrentText || explicitContextText
+      ? {
+        currentText: textPrompt || explicitCurrentText,
+        contextText: explicitContextText,
+      }
+      : this.getBlockContext();
     if (!context) {
       alert('Please select or create a block first');
       return;
     }
 
-    const promptText = '\n <context>\n this context:' + context.contextText + '\n</context>\n\n ' + context.currentText;
-    // const promptText = context.currentText;
-
-    return this.handleAIAction('ask', promptText, true, {
+    return this.handleAIAction('ask', context.currentText, true, {
       skipContext: true,
+      explicitContextText: context.contextText,
       inputAudioBase64,
       inputAudioFormat,
       inputImageBase64,
@@ -1076,6 +1535,7 @@ const mixin = {
     // Event listeners
     aiSettingsBtn.onclick = () => {
       // Update values from current settings when opening modal
+      document.getElementById('systemPrompt').value = this.aiSettings.systemPrompt;
       document.getElementById('askPrompt').value = this.aiSettings.prompts.ask;
       document.getElementById('correctPrompt').value = this.aiSettings.prompts.correct;
       document.getElementById('translatePrompt').value = this.aiSettings.prompts.translate;
@@ -1216,7 +1676,7 @@ const mixin = {
         const parsedConfig = typeof config.config === 'string' ? JSON.parse(config.config) : config.config;
 
         // Load system prompt first
-        if (parsedConfig.systemPrompt) {
+        if (Object.prototype.hasOwnProperty.call(parsedConfig, 'systemPrompt')) {
           this.aiSettings.systemPrompt = parsedConfig.systemPrompt;
           // Update the textarea if it exists
           const systemPromptInput = document.getElementById('systemPrompt');
@@ -1267,7 +1727,7 @@ const mixin = {
 
     // Prepare the config object
     const config = {
-      systemPrompt: document.getElementById('systemPrompt').value || "you are a assistant to help user write better doc now,  only output html body innerHTML code  to me, don't put it in ```html ```,do not use markdown, you can put a head h2 with 2 to 5 words at start to summary the doc; use inline style to avoid affect parent element, make the html doc looks beautiful, clean and mordern.",
+      systemPrompt: document.getElementById('systemPrompt').value,
       prompts: {
         ask: document.getElementById('askPrompt').value,
         correct: document.getElementById('correctPrompt').value,
