@@ -1227,17 +1227,17 @@ iframe {
 }
 
 .ai-response-block-flash {
-    background-color: #000000 !important;
+    background-color: #22c55e !important;
     color: #ffffff !important;
 }
 
 .ai-transient-flash-overlay {
     position: fixed;
-    background-color: #000000;
+    background-color: #22c55e;
     pointer-events: none;
     z-index: 10010;
     border-radius: 2px;
-    transition: opacity 1s ease;
+    transition: opacity 2s ease;
 }
 
 @keyframes quickAskBlockFlash {

@@ -156,10 +156,10 @@ const mixin = {
     blockElement.classList.add('ai-response-block-flash');
     window.setTimeout(() => {
       blockElement.classList.remove('ai-response-block-flash');
-    }, 1000);
+    }, 2000);
   },
 
-  flashSelectionOrCurrentBlock(selectionRange, blockElement, durationMs = 1000) {
+  flashSelectionOrCurrentBlock(selectionRange, blockElement, durationMs = 2000) {
     const overlays = [];
 
     const addOverlayForRect = (rect) => {
@@ -1059,7 +1059,7 @@ const mixin = {
       }
     }
     this.scrollSelectionOrCurrentBlockToTop(selectionRange, selectionAnchorBlock || currentBlock, 10);
-    this.flashSelectionOrCurrentBlock(selectionRange, selectionAnchorBlock || currentBlock, 1000);
+    this.flashSelectionOrCurrentBlock(selectionRange, selectionAnchorBlock || currentBlock, 2000);
     let commentedSpan = null;
 
     let imageUrl = null;
@@ -1324,6 +1324,8 @@ const mixin = {
           askGroup.innerHTML = '';
           // Add edit/delete controls to the ask group
           this.attachGroupControls(askGroup);
+          // Ensure main-note AI requests jump to the created response block.
+          this.scrollSelectionOrCurrentBlockToTop(null, askGroup, 0);
           this.flashNewAIResponseBlock(askGroup);
           this.currentAskGroup = askGroup;
           // Clear the reference after a short delay so subsequent actions create a new group
