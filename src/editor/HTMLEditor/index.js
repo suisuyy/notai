@@ -230,7 +230,7 @@ class HTMLEditor {
           node = node.parentElement;
         }
 
-        document.querySelector('.showcomment')?.classList.remove('showcomment');
+        this.hideCommentGroups();
         this.showCommentTooltip(e.target.id, e);
       }
       else {
@@ -241,9 +241,7 @@ class HTMLEditor {
           }
           node = node.parentElement;
         }
-        document.querySelectorAll('.showcomment').forEach(element => {
-          element.classList.remove('showcomment');
-        });
+        this.hideCommentGroups();
 
       }
     });

@@ -1,4 +1,23 @@
 const mixin = {
+  syncCommentContainerVisibility() {
+    const commentContainer = document.getElementById('commentContainer');
+    if (!commentContainer) {
+      return;
+    }
+    const hasVisibleComment = Boolean(commentContainer.querySelector('.comment.showcomment'));
+    commentContainer.classList.toggle('visible', hasVisibleComment);
+  },
+
+  hideCommentGroups() {
+    document.querySelectorAll('.showcomment').forEach((element) => {
+      element.classList.remove('showcomment');
+    });
+    document.querySelectorAll('.topcomment').forEach((element) => {
+      element.classList.remove('topcomment');
+    });
+    this.syncCommentContainerVisibility();
+  },
+
   setupCommentSystem() {
     const tooltip = document.getElementById('commentTooltip');
     let currentCommentElement = null;
@@ -43,6 +62,10 @@ const mixin = {
     console.log(target);
     let targetid = 'comment' + target;
     let targetElem = document.getElementById(targetid);
+    if (!targetElem) {
+      return;
+    }
+    this.hideCommentGroups();
     targetElem.classList.add('showcomment');
     //remove all other topcomment class
     let allComment = document.querySelectorAll('.topcomment');
@@ -55,6 +78,7 @@ const mixin = {
     let top = e.clientY;
     // targetElem.style.left=left+'px';
     targetElem.style.top = top + 150 + 'px';
+    this.syncCommentContainerVisibility();
   },
 
   editComment(element) {

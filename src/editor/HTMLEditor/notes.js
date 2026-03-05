@@ -675,6 +675,8 @@ const mixin = {
   updateNoteUI(note, opts = {}) {
     const { addToRecents = true } = opts;
     this.editor.innerHTML = note.content || "";
+    this.hideCommentGroups?.();
+    this.resetMainBlockForCurrentNote?.();
     this.currentBlock = null;
     document.getElementById("noteTitle").textContent = note.title || "";
     this.currentNoteId = note.note_id;

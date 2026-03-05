@@ -708,6 +708,107 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     this.setEditableState(!this.isEditable);
   },
 
+  ensureMainBlock() {
+    if (!this.editor) {
+      return null;
+    }
+
+    let mainBlock = this.editor.querySelector('#mainblock');
+    if (!mainBlock) {
+      mainBlock = document.createElement('div');
+      mainBlock.id = 'mainblock';
+      mainBlock.className = 'block main-block-panel';
+      mainBlock.setAttribute('contenteditable', 'true');
+      mainBlock.innerHTML = '<br>';
+      this.editor.prepend(mainBlock);
+    } else {
+      mainBlock.classList.add('block', 'main-block-panel');
+      if (mainBlock.parentElement !== this.editor) {
+        this.editor.prepend(mainBlock);
+      } else if (this.editor.firstElementChild !== mainBlock) {
+        this.editor.prepend(mainBlock);
+      }
+    }
+
+    if (!mainBlock.hasAttribute('contenteditable')) {
+      mainBlock.setAttribute('contenteditable', 'true');
+    }
+
+    return mainBlock;
+  },
+
+  updateMainBlockPosition() {
+    const mainBlock = document.getElementById('mainblock');
+    if (!mainBlock || !mainBlock.classList.contains('main-block-visible')) {
+      return;
+    }
+
+    const noteTitle = document.getElementById('noteTitle');
+    const noteBar = noteTitle?.parentElement;
+    if (!noteBar) {
+      return;
+    }
+
+    const noteBarRect = noteBar.getBoundingClientRect();
+    const topOffset = Math.max(12, Math.round(noteBarRect.bottom + 8));
+    mainBlock.style.top = `${topOffset}px`;
+  },
+
+  toggleMainBlock(forceVisible = null) {
+    const mainBlock = this.ensureMainBlock();
+    if (!mainBlock) {
+      return;
+    }
+
+    const shouldShow = forceVisible === null
+      ? !mainBlock.classList.contains('main-block-visible')
+      : Boolean(forceVisible);
+
+    mainBlock.classList.toggle('main-block-visible', shouldShow);
+    this.editor?.classList.toggle('main-block-open', shouldShow);
+    if (shouldShow) {
+      this.updateMainBlockPosition();
+      requestAnimationFrame(() => this.updateMainBlockPosition());
+    }
+
+    const topbarPinBtn = document.getElementById('topbarPinBtn');
+    if (topbarPinBtn) {
+      topbarPinBtn.classList.toggle('active', shouldShow);
+      const label = shouldShow ? 'Hide Main Block' : 'Show Main Block';
+      topbarPinBtn.title = label;
+      topbarPinBtn.setAttribute('aria-label', label);
+    }
+  },
+
+  resetMainBlockForCurrentNote() {
+    const existingMainBlock = this.editor?.querySelector('#mainblock');
+    if (!existingMainBlock) {
+      this.editor?.classList.remove('main-block-open');
+      const topbarPinBtn = document.getElementById('topbarPinBtn');
+      if (topbarPinBtn) {
+        topbarPinBtn.classList.remove('active');
+        topbarPinBtn.title = 'Show Main Block';
+        topbarPinBtn.setAttribute('aria-label', 'Show Main Block');
+      }
+      return;
+    }
+
+    existingMainBlock.classList.add('block', 'main-block-panel');
+    existingMainBlock.classList.remove('main-block-visible');
+    this.editor?.classList.remove('main-block-open');
+    existingMainBlock.setAttribute('contenteditable', 'true');
+    if (existingMainBlock.parentElement !== this.editor || this.editor.firstElementChild !== existingMainBlock) {
+      this.editor.prepend(existingMainBlock);
+    }
+
+    const topbarPinBtn = document.getElementById('topbarPinBtn');
+    if (topbarPinBtn) {
+      topbarPinBtn.classList.remove('active');
+      topbarPinBtn.title = 'Show Main Block';
+      topbarPinBtn.setAttribute('aria-label', 'Show Main Block');
+    }
+  },
+
   toggleSourceView() {
     this.isSourceView = !this.isSourceView;
     const sourceView = this.sourceViewEditor;
@@ -898,6 +999,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       const addBlockBtn = document.getElementById('addBlockBtn');
       const viewSourceBtn = document.getElementById('viewSourceBtn');
       const toggleEditableBtn = document.getElementById('toggleEditableBtn');
+      const topbarPinBtn = document.getElementById('topbarPinBtn');
       const saveNoteBtn = document.getElementById('saveNoteBtn');
       const plainTextBtn = document.getElementById('plainTextBtn');
       const toggleSidebarBtn = document.getElementById('toggleSidebar');
@@ -1233,6 +1335,20 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         toggleEditableBtn.addEventListener('click', () => {
           this.toggleEditable();
         });
+      }
+
+      if (topbarPinBtn) {
+        topbarPinBtn.title = 'Show Main Block';
+        topbarPinBtn.setAttribute('aria-label', 'Show Main Block');
+        topbarPinBtn.addEventListener('click', () => {
+          this.toggleMainBlock();
+        });
+      }
+
+      if (!this._mainBlockPositionHandler) {
+        this._mainBlockPositionHandler = () => this.updateMainBlockPosition();
+        window.addEventListener('resize', this._mainBlockPositionHandler);
+        window.addEventListener('scroll', this._mainBlockPositionHandler, { passive: true });
       }
 
       // Keyboard shortcuts for undo/redo

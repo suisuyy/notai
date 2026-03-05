@@ -1112,7 +1112,6 @@ const mixin = {
       }
       // Ensure edit/delete controls are present
       this.attachGroupControls(commentGroup);
-      commentGroup.classList.add('showcomment');
     }
 
     let completedResponses = 0;
@@ -1197,12 +1196,6 @@ const mixin = {
           contentsWrap.className = 'comment-contents';
           commentGroup.appendChild(contentsWrap);
         }
-        // Show the comment block immediately near selection
-        try {
-          const uId = underlinedElem ? underlinedElem.id : (commentGroup.id || '').replace(/^comment/, '');
-          this.showCommentTooltip(uId, { clientX: this.lastPointerPosition.x, clientY: this.lastPointerPosition.y });
-        } catch (_) { }
-
         // Create a tab and a content container per model
         let content = contentsWrap.querySelector(`.comment-content[data-model="${modelName}"]`);
         let tabBtn = tabsBar.querySelector(`button[data-model="${modelName}"]`);
