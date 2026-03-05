@@ -154,6 +154,8 @@ class HTMLEditor {
       audioBitsPerSecond: this.audioRecordOptions?.audioBitsPerSecond ?? null,
       promptContext: null,
       releaseRequested: null,
+      newNoteRequested: false,
+      newNotePromise: null,
     };
     this.quickAskCameraState = {
       active: false,
@@ -173,6 +175,8 @@ class HTMLEditor {
       promptContext: null,
       suppressClick: false,
       releaseRequested: false,
+      newNoteRequested: false,
+      newNotePromise: null,
     };
     this.aiResponseAudioState = {
       hasAutoplayed: false,

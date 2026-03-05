@@ -1,6 +1,8 @@
 import currentUser from '../../state/currentUser.js';
 import utils from '../../utils/index.js';
 
+const DEFAULT_FOLDER_ID = "1733485657799jj0.5911120915160637";
+
 const mixin = {
   decodeRouteSegment(segment = "") {
     try {
@@ -238,6 +240,150 @@ const mixin = {
       console.error("ensureDefaultFolderExists error:", error);
       throw error;
     }
+  },
+
+  sanitizeNoteTitle(rawTitle = "", fallback = "Untitled") {
+    const normalized = `${rawTitle ?? ""}`.trim().replace(/\s+/g, "_");
+    return normalized || fallback;
+  },
+
+  buildTimestampedNoteTitle(prefix = "note") {
+    const safePrefix = this.sanitizeNoteTitle(prefix, "note").toLowerCase();
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hour = String(now.getHours()).padStart(2, "0");
+    const minute = String(now.getMinutes()).padStart(2, "0");
+    const second = String(now.getSeconds()).padStart(2, "0");
+    return `${safePrefix}_${year}${month}${day}_${hour}${minute}${second}`;
+  },
+
+  buildNoteIdFromTitle(title = "Untitled") {
+    const safeTitle = this.sanitizeNoteTitle(title, "Untitled");
+    const userId = currentUser.userId || "user";
+    return `${safeTitle}_${userId}_${Date.now()}`;
+  },
+
+  async ensureFolderByName(folderName = "") {
+    const normalizedName = `${folderName ?? ""}`.trim();
+    if (!normalizedName) {
+      return { folderId: DEFAULT_FOLDER_ID, created: false, folderName: "default" };
+    }
+
+    const canonicalName = this.sanitizeNoteTitle(normalizedName, "folder");
+    const lowercaseName = canonicalName.toLowerCase();
+    const folders = await this.apiRequest("GET", "/folders", null, false, true);
+    if (Array.isArray(folders)) {
+      const existing = folders.find((folder) => {
+        const name = this.sanitizeNoteTitle(folder.folder_name || folder.name || "", "").toLowerCase();
+        return name === lowercaseName;
+      });
+      if (existing?.folder_id) {
+        return {
+          folderId: existing.folder_id,
+          created: false,
+          folderName: existing.folder_name || canonicalName,
+        };
+      }
+    }
+
+    const folderId = `${canonicalName}_${currentUser.userId || "user"}_${Date.now()}`;
+    const result = await this.apiRequest("POST", "/folders", {
+      folder_id: folderId,
+      name: canonicalName,
+    }, false, true);
+
+    if (!result?.success) {
+      throw new Error(`Failed to create folder "${canonicalName}"`);
+    }
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const refreshedFolders = await this.apiRequest("GET", "/folders", null, false, true);
+      if (Array.isArray(refreshedFolders)) {
+        const createdFolder = refreshedFolders.find((folder) => {
+          const name = this.sanitizeNoteTitle(folder.folder_name || folder.name || "", "").toLowerCase();
+          return name === lowercaseName;
+        });
+        if (createdFolder?.folder_id) {
+          await this.loadFolders();
+          return {
+            folderId: createdFolder.folder_id,
+            created: true,
+            folderName: createdFolder.folder_name || canonicalName,
+          };
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+
+    await this.loadFolders();
+    throw new Error(`Folder "${canonicalName}" was created but could not be resolved`);
+  },
+
+  async createAndOpenNote({
+    title = "Untitled",
+    folderId = DEFAULT_FOLDER_ID,
+    content = "Start writing here...",
+    refreshFolderContents = true,
+    refreshMainList = true,
+  } = {}) {
+    const safeTitle = this.sanitizeNoteTitle(title, "Untitled");
+    const noteId = this.buildNoteIdFromTitle(safeTitle);
+
+    const result = await this.apiRequest("POST", "/notes", {
+      note_id: noteId,
+      title: safeTitle,
+      content,
+      folder_id: folderId || DEFAULT_FOLDER_ID,
+    }, false, true);
+
+    if (!result?.success) {
+      throw new Error(result?.error || "Unknown error");
+    }
+
+    if (folderId && refreshFolderContents) {
+      const folderElement = document.querySelector(`.folder-item[data-folder-id="${folderId}"]`);
+      if (folderElement) {
+        await this.loadFolderContents(folderId, folderElement);
+      }
+    } else if (!folderId && refreshMainList) {
+      await this.loadNotes();
+    }
+
+    await this.loadNote(noteId);
+    return { noteId, title: safeTitle, folderId: folderId || DEFAULT_FOLDER_ID };
+  },
+
+  async createAndSwitchQuickNote(options = {}) {
+    const {
+      folderName = "",
+      folderId = null,
+      titlePrefix = "note",
+      content = "Start writing here...",
+    } = options;
+
+    let targetFolderId = folderId || DEFAULT_FOLDER_ID;
+    let targetFolderName = folderName || "default";
+
+    if (!folderId && folderName) {
+      const resolvedFolder = await this.ensureFolderByName(folderName);
+      targetFolderId = resolvedFolder.folderId || targetFolderId;
+      targetFolderName = resolvedFolder.folderName || targetFolderName;
+    }
+
+    const title = this.buildTimestampedNoteTitle(titlePrefix);
+    const created = await this.createAndOpenNote({
+      title,
+      folderId: targetFolderId,
+      content,
+      refreshFolderContents: false,
+      refreshMainList: false,
+    });
+    return {
+      ...created,
+      folderName: targetFolderName,
+    };
   },
 
   resetOversizedDefaultNoteState(overrides = {}) {
@@ -529,6 +675,7 @@ const mixin = {
   updateNoteUI(note, opts = {}) {
     const { addToRecents = true } = opts;
     this.editor.innerHTML = note.content || "";
+    this.currentBlock = null;
     document.getElementById("noteTitle").textContent = note.title || "";
     this.currentNoteId = note.note_id;
     this.currentNoteTitle = note.title;
@@ -721,41 +868,15 @@ const mixin = {
     let title = prompt("Enter note title:");
     if (!title) return;
 
-    // Replace spaces with underscores
-    title = title.replace(/\s+/g, '_');
+    title = this.sanitizeNoteTitle(title, "Untitled");
 
-    const noteId = title + "_" + currentUser.userId + "_" + Date.now();
-    const result = await this.apiRequest("POST", "/notes", {
-      note_id: noteId,
-      title: title,
-      content: "Start writing here...",
-      folder_id: folderId || "1733485657799jj0.5911120915160637", // Use default folder if none provided
-    });
-
-    if (result.success) {
-      if (folderId) {
-        // If created in a folder, refresh just that folder's contents
-        const folderElement = document.querySelector(
-          `.folder-item[data-folder-id="${folderId}"]`
-        );
-        if (folderElement) {
-          await this.loadFolderContents(folderId, folderElement);
-        }
-      } else {
-        // If not in a folder, refresh the main notes list
-        await this.loadNotes();
-      }
-      // Find and load the newly created note
-      const notes = await this.apiRequest(
-        "GET",
-        folderId ? `/folders/${folderId}/notes` : "/notes"
-      );
-      const newNote = notes.find((note) => note.title === title);
-      if (newNote) {
-        await this.loadNote(newNote.note_id);
-      }
-    } else {
-      alert("Failed to create note: " + (result.error || "Unknown error"));
+    try {
+      await this.createAndOpenNote({
+        title,
+        folderId,
+      });
+    } catch (error) {
+      alert("Failed to create note: " + (error?.message || "Unknown error"));
     }
   },
 

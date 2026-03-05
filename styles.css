@@ -1652,6 +1652,11 @@ pre code {
     background: #2563eb;
 }
 
+.quick-ask-new-note-btn {
+    left: 140px;
+    background: #ea580c;
+}
+
 .quick-ask-btn.is-recording {
     background: #ef4444;
     transform: scale(1.06);
@@ -1857,9 +1862,23 @@ pre code {
     background: #1d4ed8;
 }
 
+.quick-ask-new-note-btn:hover {
+    background: #c2410c;
+}
+
 .quick-ask-camera-btn:disabled {
     cursor: wait;
     opacity: 0.9;
+}
+
+.quick-ask-new-note-btn:disabled {
+    cursor: wait;
+    opacity: 0.9;
+}
+
+.quick-ask-new-note-btn.drag-target-active {
+    transform: scale(1.1);
+    box-shadow: 0 12px 24px rgba(194, 65, 12, 0.35);
 }
 
 .quick-ask-btn.is-recording:hover {
@@ -1895,6 +1914,10 @@ pre code {
 @media (max-width: 640px) {
     .quick-ask-camera-btn {
         left: 78px;
+    }
+
+    .quick-ask-new-note-btn {
+        left: 136px;
     }
 
     .quick-ask-voice-panel {

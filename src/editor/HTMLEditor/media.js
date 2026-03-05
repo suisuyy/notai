@@ -536,6 +536,10 @@ const mixin = {
       this.handleQuickAskCameraPointerDown(event);
     });
 
+    window.addEventListener('pointermove', (event) => {
+      this.handleQuickAskCameraPointerMove(event);
+    });
+
     window.addEventListener('pointerup', (event) => {
       this.handleQuickAskCameraPointerUp(event);
     });
@@ -556,6 +560,84 @@ const mixin = {
     });
 
     this._quickAskCameraControlsBound = true;
+  },
+
+  setupQuickAskNewNoteControls(quickAskNewNoteBtn) {
+    if (this._quickAskNewNoteControlsBound || !quickAskNewNoteBtn) {
+      return;
+    }
+
+    this.quickAskNewNoteButton = quickAskNewNoteBtn;
+    quickAskNewNoteBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      if (this.quickAskVoiceState?.busy || this.quickAskCameraState?.busy || quickAskNewNoteBtn.disabled) {
+        return;
+      }
+
+      quickAskNewNoteBtn.disabled = true;
+      try {
+        const created = await this.createAndSwitchQuickNote({
+          titlePrefix: 'note',
+        });
+        if (created?.title) {
+          this.showToast(`Created "${created.title}" in folder "${created.folderName || 'default'}".`, 'success');
+        }
+      } catch (error) {
+        console.error('Quick new note creation failed:', error);
+        this.showToast('Failed to create note');
+      } finally {
+        quickAskNewNoteBtn.disabled = false;
+      }
+    });
+
+    this._quickAskNewNoteControlsBound = true;
+  },
+
+  isPointerInsideQuickAskNewNoteButton(event) {
+    const targetButton = this.quickAskNewNoteButton || document.getElementById('quickAskNewNoteBtn');
+    if (!targetButton || !event) {
+      return false;
+    }
+
+    const rect = targetButton.getBoundingClientRect();
+    return (
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom
+    );
+  },
+
+  setQuickAskNewNoteDragTarget(active = false) {
+    this.quickAskNewNoteButton?.classList.toggle('drag-target-active', Boolean(active));
+  },
+
+  triggerQuickAskNewNoteFromGesture(mode = 'audio') {
+    const state = mode === 'image' ? this.quickAskCameraState : this.quickAskVoiceState;
+    if (!state || state.newNoteRequested) {
+      return;
+    }
+
+    state.newNoteRequested = true;
+    this.setQuickAskNewNoteDragTarget(true);
+    const quickNoteConfig = mode === 'image'
+      ? { folderName: 'imagechat', titlePrefix: 'image' }
+      : { folderName: 'audiochat', titlePrefix: 'audio' };
+    state.newNotePromise = (async () => {
+      try {
+        const created = await this.createAndSwitchQuickNote(quickNoteConfig);
+        if (created?.title) {
+          this.showToast(`Recording will save to "${created.title}" in "${created.folderName || 'default'}".`, 'success');
+        }
+        return created;
+      } catch (error) {
+        console.error('Gesture quick note creation failed:', error);
+        this.showToast('Could not create quick note. Using current note.');
+        return null;
+      } finally {
+        this.setQuickAskNewNoteDragTarget(false);
+      }
+    })();
   },
 
   setQuickAskCameraButtonMode(mode = 'idle') {
@@ -607,6 +689,8 @@ const mixin = {
     state.promptContext = this.getBlockContext();
     state.releaseRequested = false;
     state.suppressClick = false;
+    state.newNoteRequested = false;
+    state.newNotePromise = null;
     clearTimeout(state.holdTimerId);
     state.holdTimerId = window.setTimeout(() => {
       this.startQuickAskCameraHoldCapture();
@@ -617,6 +701,20 @@ const mixin = {
     } catch (_) { }
   },
 
+  handleQuickAskCameraPointerMove(event) {
+    const state = this.quickAskCameraState;
+    if (event.pointerId !== state.pointerId) {
+      return;
+    }
+
+    const onQuickNoteTarget = this.isPointerInsideQuickAskNewNoteButton(event);
+    this.setQuickAskNewNoteDragTarget(onQuickNoteTarget && !state.newNoteRequested);
+
+    if (onQuickNoteTarget && !state.newNoteRequested) {
+      this.triggerQuickAskNewNoteFromGesture('image');
+    }
+  },
+
   async handleQuickAskCameraPointerUp(event) {
     const state = this.quickAskCameraState;
     if (event.pointerId !== state.pointerId) {
@@ -625,6 +723,7 @@ const mixin = {
 
     clearTimeout(state.holdTimerId);
     state.holdTimerId = 0;
+    this.setQuickAskNewNoteDragTarget(false);
 
     try {
       if (this.quickAskCameraButton?.hasPointerCapture?.(event.pointerId)) {
@@ -657,6 +756,7 @@ const mixin = {
     clearTimeout(state.holdTimerId);
     state.holdTimerId = 0;
     state.suppressClick = true;
+    this.setQuickAskNewNoteDragTarget(false);
 
     if (state.starting && !state.recorder) {
       state.active = false;
@@ -696,6 +796,8 @@ const mixin = {
     state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
     state.promptContext = this.getBlockContext();
     state.releaseRequested = null;
+    state.newNoteRequested = false;
+    state.newNotePromise = null;
 
     try {
       this.quickAskButton.setPointerCapture?.(event.pointerId);
@@ -705,7 +807,7 @@ const mixin = {
     this.showQuickAskVoicePanelState({
       locked: false,
       title: 'Starting recording...',
-      hint: 'Release to send. Slide up to lock.',
+      hint: 'Release to send. Slide up to lock or right for new note.',
       lockLabel: 'Slide here for hands-free',
       timerText: '0:00',
       formatText: 'Format: detecting...',
@@ -719,6 +821,12 @@ const mixin = {
     const state = this.quickAskVoiceState;
     if (!state.active || state.locked || event.pointerId !== state.pointerId || !this.quickAskVoiceLockZone) {
       return;
+    }
+
+    const onQuickNoteTarget = this.isPointerInsideQuickAskNewNoteButton(event);
+    this.setQuickAskNewNoteDragTarget(onQuickNoteTarget && !state.newNoteRequested);
+    if (onQuickNoteTarget && !state.newNoteRequested) {
+      this.triggerQuickAskNewNoteFromGesture('audio');
     }
 
     const rect = this.quickAskVoiceLockZone.getBoundingClientRect();
@@ -744,6 +852,7 @@ const mixin = {
 
     event.preventDefault();
     this.releaseQuickAskVoicePointerCapture();
+    this.setQuickAskNewNoteDragTarget(false);
 
     if (state.locked) {
       state.active = false;
@@ -764,6 +873,7 @@ const mixin = {
     }
 
     this.releaseQuickAskVoicePointerCapture();
+    this.setQuickAskNewNoteDragTarget(false);
     this.completeQuickAskVoiceRecording({
       send: false,
       includeAudio: false,
@@ -815,7 +925,7 @@ const mixin = {
         this.showQuickAskVoicePanelState({
           locked: false,
           title: 'Recording...',
-          hint: 'Release to send. Slide up to lock.',
+          hint: 'Release to send. Slide up to lock or right for new note.',
           lockLabel: 'Slide here for hands-free',
           formatText: `Format: ${metadata.formatLabel}`,
         });
@@ -886,6 +996,7 @@ const mixin = {
   async completeQuickAskVoiceRecording(options = {}) {
     const state = this.quickAskVoiceState;
     const { send = true, includeAudio = true, discard = false } = options;
+    const pendingNewNotePromise = state.newNotePromise;
 
     state.active = false;
     state.pointerId = null;
@@ -951,6 +1062,10 @@ const mixin = {
 
       if (!send || discard) {
         return;
+      }
+
+      if (pendingNewNotePromise) {
+        await pendingNewNotePromise;
       }
 
       if (insertedAudioPayload) {
@@ -1051,6 +1166,8 @@ const mixin = {
     state.audioBitsPerSecond = this.audioRecordOptions?.audioBitsPerSecond ?? null;
     state.promptContext = null;
     state.releaseRequested = null;
+    state.newNoteRequested = false;
+    state.newNotePromise = null;
 
     this.quickAskVoicePanel?.classList.remove('visible', 'locked');
     this.quickAskVoicePanel?.classList.remove('camera-mode');
@@ -1060,7 +1177,7 @@ const mixin = {
       this.quickAskVoiceTitle.textContent = 'Recording...';
     }
     if (this.quickAskVoiceHint) {
-      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock.';
+      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock or right for new note.';
     }
     if (this.quickAskVoiceFormat) {
       this.quickAskVoiceFormat.textContent = 'Format: -';
@@ -1072,6 +1189,7 @@ const mixin = {
       this.quickAskVoiceTimer.textContent = '0:00';
     }
     this.hideQuickAskCameraPreview();
+    this.setQuickAskNewNoteDragTarget(false);
 
     this.setQuickAskButtonMode('idle');
   },
@@ -1247,7 +1365,7 @@ const mixin = {
     this.setQuickAskCameraButtonMode('recording');
     this.showQuickAskVoicePanelState({
       title: 'Opening camera...',
-      hint: 'Hold to talk and frame the shot. Release to send.',
+      hint: 'Hold to talk and frame the shot. Slide right for new note.',
       formatText: 'Audio: detecting...',
       timerText: '0:00',
     });
@@ -1290,7 +1408,7 @@ const mixin = {
       this.startQuickAskCameraTimer();
       this.showQuickAskVoicePanelState({
         title: 'Camera + audio',
-        hint: 'Speak while framing. Release to send the latest frame.',
+        hint: 'Speak while framing. Release to send. Slide right for new note.',
         formatText: `Audio: ${metadata.formatLabel}`,
       });
 
@@ -1328,6 +1446,8 @@ const mixin = {
     state.formatLabel = this.audioRecordLabel;
     state.promptContext = null;
     state.releaseRequested = false;
+    state.newNoteRequested = false;
+    state.newNotePromise = null;
     this.hideQuickAskCameraPreview();
     if (this.quickAskVoicePanel?.classList.contains('camera-mode')) {
       this.quickAskVoicePanel.classList.remove('visible', 'locked', 'camera-mode');
@@ -1338,7 +1458,7 @@ const mixin = {
       this.quickAskVoiceTitle.textContent = 'Recording...';
     }
     if (this.quickAskVoiceHint) {
-      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock.';
+      this.quickAskVoiceHint.textContent = 'Release to send. Slide up to lock or right for new note.';
     }
     if (this.quickAskVoiceFormat) {
       this.quickAskVoiceFormat.textContent = 'Format: -';
@@ -1346,12 +1466,14 @@ const mixin = {
     if (this.quickAskVoiceTimer) {
       this.quickAskVoiceTimer.textContent = '0:00';
     }
+    this.setQuickAskNewNoteDragTarget(false);
     this.setQuickAskCameraButtonMode('idle');
   },
 
   async completeQuickAskCameraHoldCapture(options = {}) {
     const state = this.quickAskCameraState;
     const { send = true, discard = false } = options;
+    const pendingNewNotePromise = state.newNotePromise;
     if (!state.busy && !state.active && !state.starting) {
       return;
     }
@@ -1399,6 +1521,10 @@ const mixin = {
 
     if (!send || discard) {
       return;
+    }
+
+    if (pendingNewNotePromise) {
+      await pendingNewNotePromise;
     }
 
     if (imagePayload) {

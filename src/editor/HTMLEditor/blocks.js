@@ -247,6 +247,11 @@ const mixin = {
     }
     // Prefer the block that contains the selection (or provided anchorNode)
     let currentBlock = null;
+    const isUsableBlock = (candidate) => (
+      candidate instanceof HTMLElement &&
+      candidate.isConnected &&
+      this.editor?.contains(candidate)
+    );
     try {
       const anchor = anchorNode || (selection && selection.rangeCount > 0 ? selection.getRangeAt(0).commonAncestorContainer : null);
       if (anchor) {
@@ -260,32 +265,39 @@ const mixin = {
       }
     } catch (_) { }
     // Fallback to the last known currentBlock
-    if (!currentBlock) currentBlock = this.currentBlock;
-    if (currentBlock instanceof HTMLElement) {
+    if (!isUsableBlock(currentBlock) && isUsableBlock(this.currentBlock)) {
+      currentBlock = this.currentBlock;
+    }
+    if (isUsableBlock(currentBlock)) {
       this.currentBlock = currentBlock;
+    } else {
+      currentBlock = null;
+      this.currentBlock = null;
     }
 
     // Insert the block after the cursor position
     const blankLine = document.createElement('br');
-    const blankLine2 = document.createElement('br');
 
     if (currentBlock) {
       // Insert after current block
       currentBlock.after(blankLine);
       blankLine.after(block);
       block.after(document.createElement('br'));
+      this.currentBlock = block;
     } else {
-      // Insert at cursor position
+      // Insert at cursor position if valid, otherwise append to editor end.
       if (this.editor.contains(range.commonAncestorContainer)) {
         range.collapse(false); // Collapse to end
         range.insertNode(blankLine);
         blankLine.after(block);
         block.after(document.createElement('br'));
         this.currentBlock = block;
-
+      } else if (this.editor) {
+        this.editor.appendChild(blankLine);
+        this.editor.appendChild(block);
+        this.editor.appendChild(document.createElement('br'));
+        this.currentBlock = block;
       }
-
-
     }
 
     // Focus the new block and move cursor inside

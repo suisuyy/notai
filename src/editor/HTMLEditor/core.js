@@ -894,6 +894,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       const audioDevices = document.getElementById('audioDevices');
       const quickAskBtn = document.getElementById('quickAskBtn');
       const quickAskCameraBtn = document.getElementById('quickAskCameraBtn');
+      const quickAskNewNoteBtn = document.getElementById('quickAskNewNoteBtn');
       const addBlockBtn = document.getElementById('addBlockBtn');
       const viewSourceBtn = document.getElementById('viewSourceBtn');
       const toggleEditableBtn = document.getElementById('toggleEditableBtn');
@@ -1141,6 +1142,9 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       }
       if (quickAskCameraBtn) {
         this.setupQuickAskCameraControls(quickAskCameraBtn);
+      }
+      if (quickAskNewNoteBtn) {
+        this.setupQuickAskNewNoteControls(quickAskNewNoteBtn);
       }
 
       // Sidebar toggle
