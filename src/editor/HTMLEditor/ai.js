@@ -146,6 +146,86 @@ const mixin = {
     return customTool?.prompt || '';
   },
 
+  flashNewAIResponseBlock(blockElement) {
+    if (!blockElement) {
+      return;
+    }
+    blockElement.classList.remove('ai-response-block-flash');
+    // Force reflow so repeat flashes can retrigger reliably.
+    void blockElement.offsetWidth;
+    blockElement.classList.add('ai-response-block-flash');
+    window.setTimeout(() => {
+      blockElement.classList.remove('ai-response-block-flash');
+    }, 1000);
+  },
+
+  flashSelectionOrCurrentBlock(selectionRange, blockElement, durationMs = 1000) {
+    const overlays = [];
+
+    const addOverlayForRect = (rect) => {
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        return;
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'ai-transient-flash-overlay';
+      overlay.style.left = `${rect.left}px`;
+      overlay.style.top = `${rect.top}px`;
+      overlay.style.width = `${rect.width}px`;
+      overlay.style.height = `${rect.height}px`;
+      overlay.style.opacity = '0.98';
+      document.body.appendChild(overlay);
+      overlays.push(overlay);
+      window.requestAnimationFrame(() => {
+        overlay.style.opacity = '0';
+      });
+    };
+
+    if (selectionRange && !selectionRange.collapsed) {
+      Array.from(selectionRange.getClientRects() || []).forEach(addOverlayForRect);
+    }
+
+    if (overlays.length === 0 && blockElement) {
+      addOverlayForRect(blockElement.getBoundingClientRect());
+    }
+
+    if (overlays.length === 0) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      overlays.forEach((overlay) => overlay.remove());
+    }, durationMs);
+  },
+
+  scrollSelectionOrCurrentBlockToTop(selectionRange, blockElement, offsetPx = 10) {
+    const editor = this.editor;
+    if (!editor) {
+      return;
+    }
+
+    let targetRect = null;
+    if (selectionRange) {
+      const rects = selectionRange.getClientRects?.();
+      if (rects && rects.length > 0) {
+        targetRect = rects[0];
+      }
+    }
+    if (!targetRect && blockElement?.getBoundingClientRect) {
+      targetRect = blockElement.getBoundingClientRect();
+    }
+    if (!targetRect) {
+      return;
+    }
+
+    const editorRect = editor.getBoundingClientRect();
+    const targetTop = editor.scrollTop + (targetRect.top - editorRect.top) - offsetPx;
+    if (typeof editor.scrollTo === 'function') {
+      editor.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    } else {
+      editor.scrollTop = Math.max(0, targetTop);
+    }
+  },
+
   setupAIRequestDetailsModal() {
     if (this._aiRequestDetailsModalBound) {
       return;
@@ -978,6 +1058,8 @@ const mixin = {
         selectionAnchorBlock = anchorEl.closest('.block');
       }
     }
+    this.scrollSelectionOrCurrentBlockToTop(selectionRange, selectionAnchorBlock || currentBlock, 10);
+    this.flashSelectionOrCurrentBlock(selectionRange, selectionAnchorBlock || currentBlock, 1000);
     let commentedSpan = null;
 
     let imageUrl = null;
@@ -1107,6 +1189,7 @@ const mixin = {
         commentGroup.innerHTML = `<h4 style="margin: 0; padding: 5px 28px 0 0;">${commentGroup.id}</h4>`;
         commentGroup.after(document.createElement('br'));
         commentGroup.before(document.createElement('br'));
+        this.flashNewAIResponseBlock(commentGroup);
       }
       // Ensure edit/delete controls are present
       this.attachGroupControls(commentGroup);
@@ -1241,6 +1324,7 @@ const mixin = {
           askGroup.innerHTML = '';
           // Add edit/delete controls to the ask group
           this.attachGroupControls(askGroup);
+          this.flashNewAIResponseBlock(askGroup);
           this.currentAskGroup = askGroup;
           // Clear the reference after a short delay so subsequent actions create a new group
           setTimeout(() => { if (this.currentAskGroup === askGroup) this.currentAskGroup = null; }, 2000);
