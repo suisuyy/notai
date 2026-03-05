@@ -549,12 +549,45 @@
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                //           navigator.serviceWorker.register('/service-worker.js').then(registration => {
-                console.log('Service Worker registered with scope:', registration.scope);
-            }).catch(error => {
-                console.error('Service Worker registration failed:', error);
+                const hadController = Boolean(navigator.serviceWorker.controller);
+
+                navigator.serviceWorker
+                    .register('/service-worker.js', { scope: '/' })
+                    .then((registration) => {
+                        console.log('Service Worker registered with scope:', registration.scope);
+
+                        if (registration.waiting && hadController) {
+                            window.showUpdatePrompt?.();
+                        }
+
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            if (!newWorker) return;
+
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && hadController) {
+                                    window.showUpdatePrompt?.();
+                                }
+                            });
+                        });
+
+                        navigator.serviceWorker.addEventListener('controllerchange', () => {
+                            if (!hadController) {
+                                return;
+                            }
+
+                            if (window.__swControllerChanged) {
+                                return;
+                            }
+
+                            window.__swControllerChanged = true;
+                            window.location.reload();
+                        });
+                    })
+                    .catch((error) => {
+                        console.error('Service Worker registration failed:', error);
+                    });
             });
-        });
         }
     </script>
 </body>

@@ -866,6 +866,156 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     this.setEditableState(!this.isEditable);
   },
 
+  resetEditableTapState() {
+    this._editableTapState = {
+      count: 0,
+      startedAt: 0,
+      anchorX: 0,
+      anchorY: 0,
+    };
+  },
+
+  handleEditableTripleClick(event) {
+    if (!this.editor || !event || event.button !== 0) {
+      return;
+    }
+
+    if (!this.editor.contains(event.target)) {
+      this.resetEditableTapState();
+      return;
+    }
+
+    if (!this._editableTapState) {
+      this.resetEditableTapState();
+    }
+
+    const windowMs = 2000;
+    const areaSizePx = 20;
+    const areaHalf = areaSizePx / 2;
+    const now = Date.now();
+    const state = this._editableTapState;
+
+    const expired = !state.startedAt || (now - state.startedAt) > windowMs;
+    const movedOutsideArea = state.count > 0 && (
+      Math.abs(event.clientX - state.anchorX) > areaHalf ||
+      Math.abs(event.clientY - state.anchorY) > areaHalf
+    );
+
+    if (expired || movedOutsideArea) {
+      state.count = 1;
+      state.startedAt = now;
+      state.anchorX = event.clientX;
+      state.anchorY = event.clientY;
+      return;
+    }
+
+    state.count += 1;
+
+    if (state.count >= 3) {
+      this.toggleEditable();
+      this.resetEditableTapState();
+      this.showToast?.(this.isEditable ? "Editor unlocked" : "Editor locked");
+    }
+  },
+
+  resetTwoFingerTapState() {
+    this._twoFingerTapState = {
+      active: false,
+      moved: false,
+      triggered: false,
+      startTime: 0,
+      startTouches: [],
+    };
+  },
+
+  handleTwoFingerTapStart(event) {
+    if (!event?.touches || !this.editor) {
+      return;
+    }
+
+    if (!this._twoFingerTapState) {
+      this.resetTwoFingerTapState();
+    }
+
+    const state = this._twoFingerTapState;
+
+    if (event.touches.length === 2) {
+      state.active = true;
+      state.moved = false;
+      state.triggered = false;
+      state.startTime = Date.now();
+      state.startTouches = Array.from(event.touches).slice(0, 2).map((touch) => ({
+        id: touch.identifier,
+        x: touch.clientX,
+        y: touch.clientY,
+      }));
+      return;
+    }
+
+    if (state.active && event.touches.length > 2) {
+      state.moved = true;
+    }
+  },
+
+  handleTwoFingerTapMove(event) {
+    if (!event?.touches || !this._twoFingerTapState?.active) {
+      return;
+    }
+
+    const state = this._twoFingerTapState;
+    const maxMovePx = 24;
+
+    if (event.touches.length !== 2) {
+      state.moved = true;
+      return;
+    }
+
+    for (const touch of Array.from(event.touches)) {
+      const startTouch = state.startTouches.find((entry) => entry.id === touch.identifier);
+      if (!startTouch) {
+        state.moved = true;
+        return;
+      }
+
+      if (
+        Math.abs(touch.clientX - startTouch.x) > maxMovePx ||
+        Math.abs(touch.clientY - startTouch.y) > maxMovePx
+      ) {
+        state.moved = true;
+        return;
+      }
+    }
+  },
+
+  handleTwoFingerTapEnd(event) {
+    if (!this._twoFingerTapState?.active) {
+      return;
+    }
+
+    const state = this._twoFingerTapState;
+    const maxDurationMs = 350;
+    const elapsed = Date.now() - state.startTime;
+    const allTouchesReleased = event?.touches?.length === 0;
+
+    if (
+      allTouchesReleased &&
+      !state.triggered &&
+      !state.moved &&
+      elapsed <= maxDurationMs
+    ) {
+      state.triggered = true;
+      this.toggleMainBlock();
+    }
+
+    if (allTouchesReleased) {
+      this.resetTwoFingerTapState();
+    }
+  },
+
+  handleTwoFingerTapCancel() {
+    this.resetTwoFingerTapState();
+  },
+
   ensureMainBlock() {
     if (!this.editor) {
       return null;
@@ -1103,8 +1253,19 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
       document.body.addEventListener('pointerdown', () => this.idleSync());
       document.body.addEventListener('keypress', () => this.idleSync());
 
+      if (!this._twoFingerTapHandlersInitialized && this.editor) {
+        this._twoFingerTapHandlersInitialized = true;
+        this.resetTwoFingerTapState();
+        this.editor.addEventListener('touchstart', (e) => this.handleTwoFingerTapStart(e), { passive: true });
+        this.editor.addEventListener('touchmove', (e) => this.handleTwoFingerTapMove(e), { passive: true });
+        this.editor.addEventListener('touchend', (e) => this.handleTwoFingerTapEnd(e), { passive: true });
+        this.editor.addEventListener('touchcancel', () => this.handleTwoFingerTapCancel(), { passive: true });
+      }
+
       // Delegated tab switching for ask/comment groups (works after reload)
       this.editor.addEventListener('click', (e) => {
+        this.handleEditableTripleClick(e);
+
         const btn = e.target.closest && e.target.closest('.ask-tabs button, .comment-tabs button');
         if (!btn || !this.editor.contains(btn)) return;
         const group = btn.closest('.ask-group, .comment-group');
