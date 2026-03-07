@@ -688,6 +688,10 @@ const mixin = {
       return false;
     }
 
+    if (this.shouldPreventGrowthForCurrentNote({ inputType: 'insertFromPaste' })) {
+      return false;
+    }
+
     const normalizedHtml = this.normalizeClipboardHtml(html);
     const { selection, range } = this.getEditorInsertionSelectionAndRange();
     if (!range) {
@@ -737,6 +741,10 @@ const mixin = {
 
   insertPlainTextAtSelection(text) {
     if (typeof text !== 'string' || text.length === 0) {
+      return false;
+    }
+
+    if (this.shouldPreventGrowthForCurrentNote({ inputType: 'insertText' })) {
       return false;
     }
 
@@ -845,11 +853,17 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     this.isEditable = isEditable;
     if (this.editor) {
       this.editor.contentEditable = isEditable;
+      this.editor.spellcheck = false;
+      this.editor.setAttribute('autocorrect', 'off');
+      this.editor.setAttribute('autocapitalize', 'off');
     }
 
     const titleEl = document.getElementById("noteTitle");
     if (titleEl) {
       titleEl.contentEditable = isEditable;
+      titleEl.spellcheck = false;
+      titleEl.setAttribute('autocorrect', 'off');
+      titleEl.setAttribute('autocapitalize', 'off');
     }
 
     const button = document.getElementById("toggleEditableBtn");
@@ -1721,6 +1735,11 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
         // Fine-grained history via beforeinput to capture intent types
         this.editor.addEventListener('beforeinput', (e) => {
+          if (this.shouldPreventGrowthForCurrentNote(e)) {
+            e.preventDefault();
+            return;
+          }
+
           // Types that should snapshot prior state
           const type = e.inputType || '';
           const now = Date.now();
@@ -1767,6 +1786,7 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
           clearTimeout(this.inputToUpdateLastUpdatedTimeoutID);
           this.inputToUpdateLastUpdatedTimeoutID = setTimeout(() => {
+            this.syncCurrentNoteSizePolicy();
             this.lastUpdated = utils.getCurrentTimeString();
             console.log(' this.editor.addEventListener input update this.lastupdated  :', this.lastUpdated);
             this.delayedSaveNote();
@@ -1822,6 +1842,11 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         });
 
         this.editor.addEventListener('paste', (event) => {
+          if (this.shouldPreventGrowthForCurrentNote({ inputType: 'insertFromPaste' })) {
+            event.preventDefault();
+            return;
+          }
+
           let handled = false;
           const dataTransfer = event.clipboardData || window.clipboardData;
           if (dataTransfer) {
@@ -2082,6 +2107,11 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
         });
 
         this.editor.addEventListener('drop', (event) => {
+          if (this.shouldPreventGrowthForCurrentNote({ inputType: 'insertFromDrop' })) {
+            event.preventDefault();
+            return;
+          }
+
           event.preventDefault();
 
           this.showToast('drop file to upload');
@@ -2707,11 +2737,87 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     }
   },
 
+  showToastDetailModal({
+    title = 'Notice',
+    message = '',
+    actionLabel = '',
+    onAction = null,
+  } = {}) {
+    const overlay = document.createElement('div');
+    overlay.className = 'toast-detail-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'toast-detail-modal';
+
+    const header = document.createElement('div');
+    header.className = 'toast-detail-header';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'toast-detail-title';
+    titleEl.textContent = title;
+    header.appendChild(titleEl);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-detail-close';
+    closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'toast-detail-body';
+    body.textContent = `${message ?? ''}`;
+
+    modal.appendChild(header);
+    modal.appendChild(body);
+
+    if (actionLabel && typeof onAction === 'function') {
+      const footer = document.createElement('div');
+      footer.className = 'toast-detail-footer';
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'toast-detail-action';
+      actionBtn.textContent = actionLabel;
+      actionBtn.addEventListener('click', () => {
+        closeModal();
+        try {
+          onAction();
+        } catch (error) {
+          console.error('Toast detail action failed:', error);
+        }
+      });
+      footer.appendChild(actionBtn);
+      modal.appendChild(footer);
+    }
+
+    const closeModal = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', handleKeydown);
+    };
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) {
+        closeModal();
+      }
+    });
+    document.addEventListener('keydown', handleKeydown);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  },
+
   showToast(message, type = 'error', options = {}) {
     const {
       actionLabel = '',
       onAction = null,
       durationMs = 10000,
+      expandedTitle = '',
+      expandedMessage = '',
     } = options || {};
     const toastContainer = document.getElementById('toastContainer');
     const toast = document.createElement('div');
@@ -2721,9 +2827,10 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
     messageEl.textContent = `${message ?? ''}`;
     toast.appendChild(messageEl);
 
-    if (actionLabel && typeof onAction === 'function') {
+    const canExpand = Boolean(expandedMessage);
+    if (actionLabel && typeof onAction === 'function' || canExpand) {
       toast.classList.add('is-clickable');
-      toast.title = actionLabel;
+      toast.title = canExpand ? 'Click to expand' : actionLabel;
     }
 
     const closeButton = document.createElement('button');
@@ -2753,13 +2860,22 @@ go to <a href="https://github.com/suisuyy/notai/tree/can?tab=readme-ov-file#intr
 
     closeBtn.addEventListener('click', closeToast);
 
-    if (actionLabel && typeof onAction === 'function') {
+    if (actionLabel && typeof onAction === 'function' || canExpand) {
       toast.addEventListener('click', (event) => {
         if (event.target.closest('.toast-close')) {
           return;
         }
+        if (canExpand) {
+          this.showToastDetailModal({
+            title: expandedTitle || 'Notice',
+            message: expandedMessage,
+            actionLabel,
+            onAction,
+          });
+          return;
+        }
         try {
-          onAction();
+          onAction?.();
         } catch (error) {
           console.error('Toast action failed:', error);
         }

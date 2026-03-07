@@ -32,3 +32,6 @@ export const DEFAULT_MODELS = [
     api_key: "",
   },
 ];
+
+export const DEFAULT_NOTE_BIG_NOTE_THRESHOLD = 20000;
+export const NOTE_SIZE_LIMIT_FOR_APPEND = 20000;

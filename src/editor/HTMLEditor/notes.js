@@ -1,5 +1,9 @@
 import currentUser from '../../state/currentUser.js';
 import utils from '../../utils/index.js';
+import {
+  DEFAULT_NOTE_BIG_NOTE_THRESHOLD,
+  NOTE_SIZE_LIMIT_FOR_APPEND,
+} from './constants.js';
 
 const DEFAULT_FOLDER_ID = "1733485657799jj0.5911120915160637";
 
@@ -410,6 +414,193 @@ const mixin = {
     };
   },
 
+  resetNoteSizePolicyState(overrides = {}) {
+    this._noteSizePolicyState = {
+      noteId: null,
+      contentLength: 0,
+      blockInsertions: false,
+      shortBlockReason: '',
+      blockReason: '',
+      noticeShown: false,
+      ...overrides,
+    };
+  },
+
+  getCurrentNoteContentLength() {
+    return this.editor?.innerText?.length || 0;
+  },
+
+  syncCurrentNoteSizePolicy(options = {}) {
+    const { notify = false } = options;
+    if (!this.currentNoteId) {
+      this.resetNoteSizePolicyState();
+      return this._noteSizePolicyState;
+    }
+
+    const contentLength = this.getCurrentNoteContentLength();
+    const isDefaultNote = this.isDefaultNoteId(this.currentNoteId);
+    const blockInsertions = !isDefaultNote && contentLength > NOTE_SIZE_LIMIT_FOR_APPEND;
+    const shortBlockReason = blockInsertions
+      ? 'Disabled add new content, note too big now.'
+      : '';
+    const blockReason = blockInsertions
+      ? `This note is too big now (${contentLength} chars). Adding new content is disabled because it can impact performance. Only delete or cut is supported. Move the content into a new note if you want to keep adding text.`
+      : '';
+    const prevState = this._noteSizePolicyState || {};
+
+    this._noteSizePolicyState = {
+      noteId: this.currentNoteId,
+      contentLength,
+      blockInsertions,
+      shortBlockReason,
+      blockReason,
+      noticeShown: blockInsertions ? prevState.noticeShown : false,
+    };
+
+    if (notify && blockInsertions && !this._noteSizePolicyState.noticeShown) {
+      this._noteSizePolicyState.noticeShown = true;
+      this.showToast(shortBlockReason, 'error', {
+        expandedTitle: 'Note Too Big',
+        expandedMessage: blockReason,
+        actionLabel: 'Move content into a new note',
+        onAction: () => this.moveCurrentOversizedNoteContent(),
+        durationMs: 15000,
+      });
+    }
+
+    return this._noteSizePolicyState;
+  },
+
+  shouldPreventGrowthForCurrentNote(event, source = 'editor') {
+    const state = this.syncCurrentNoteSizePolicy();
+    if (!state?.blockInsertions) {
+      return false;
+    }
+
+    const inputType = `${event?.inputType || ''}`;
+    if (inputType.startsWith('delete')) {
+      return false;
+    }
+
+    if (!state.noticeShown) {
+      this.syncCurrentNoteSizePolicy({ notify: true });
+    } else {
+      this.showToast(state.shortBlockReason || 'Disabled add new content, note too big now.', 'error', {
+        expandedTitle: 'Note Too Big',
+        expandedMessage: state.blockReason,
+        durationMs: 5000,
+      });
+    }
+
+    if (source === 'title') {
+      const titleEl = document.getElementById('noteTitle');
+      titleEl?.blur?.();
+    }
+
+    return true;
+  },
+
+  async moveCurrentOversizedNoteContent() {
+    if (!this.currentNoteId || this.isDefaultNoteId(this.currentNoteId)) {
+      return;
+    }
+
+    const noteData = {
+      note_id: this.currentNoteId,
+      title: document.getElementById('noteTitle')?.textContent?.trim() || this.currentNoteTitle || 'Untitled',
+      content: this.editor?.innerHTML || '',
+      folder_id: this.currentNoteFolderId || DEFAULT_FOLDER_ID,
+      last_updated: this.lastUpdated,
+    };
+
+    if ((noteData.content || '').length <= NOTE_SIZE_LIMIT_FOR_APPEND) {
+      this.syncCurrentNoteSizePolicy();
+      return;
+    }
+
+    const shouldMove = confirm(
+      'This note is too big and can impact performance. Move its content into a new note and clear this note now?'
+    );
+    if (!shouldMove) {
+      return;
+    }
+
+    try {
+      const newTitle = await this.moveNoteContentToNewNote(noteData, {
+        folderId: noteData.folder_id || DEFAULT_FOLDER_ID,
+        titlePrefix: noteData.title || 'note',
+      });
+      this.showToast(`Moved note content to "${newTitle}".`, 'success');
+      this.syncCurrentNoteSizePolicy();
+    } catch (error) {
+      console.error('Error moving oversized note content:', error);
+      this.showToast('Failed to move note content into a new note.', 'error');
+    }
+  },
+
+  async moveNoteContentToNewNote(noteData, options = {}) {
+    const {
+      folderId = noteData?.folder_id || DEFAULT_FOLDER_ID,
+      titlePrefix = noteData?.title || 'note',
+    } = options;
+    const newTitle = this.buildTimestampedNoteTitle(titlePrefix);
+    const newNoteId = this.buildNoteIdFromTitle(newTitle);
+    const createPayload = {
+      note_id: newNoteId,
+      title: newTitle,
+      content: noteData?.content || '',
+      folder_id: folderId,
+    };
+
+    const createResult = await this.apiRequest('POST', '/notes', createPayload, false, true);
+    if (!createResult?.success) {
+      throw new Error('Failed to create destination note');
+    }
+
+    const clearedContent = '<br><br>';
+    const clearPayload = {
+      note_id: noteData.note_id,
+      title: noteData.title || 'Untitled',
+      content: clearedContent,
+      folder_id: noteData.folder_id || DEFAULT_FOLDER_ID,
+    };
+
+    if (this.currentNoteId === noteData.note_id) {
+      this.editor.innerHTML = clearedContent;
+      this.resetHistoryWithCurrentContent();
+    }
+
+    const clearResult = await this.apiRequest('POST', '/notes', clearPayload, false, true);
+    if (!clearResult?.success) {
+      throw new Error('Failed to clear source note');
+    }
+
+    const [movedNote, clearedNote] = await Promise.all([
+      this.apiRequest('GET', `/notes/${newNoteId}`, null, false, true),
+      this.apiRequest('GET', `/notes/${noteData.note_id}`, null, false, true),
+    ]);
+
+    await this.updateNoteCache(newNoteId, movedNote?.error ? createPayload : movedNote);
+    await this.updateNoteCache(noteData.note_id, clearedNote?.error ? clearPayload : clearedNote);
+
+    if (this.currentNoteId === noteData.note_id) {
+      this.currentNoteFolderId = noteData.folder_id || DEFAULT_FOLDER_ID;
+      this.currentNoteTitle = noteData.title || 'Untitled';
+      this.lastUpdated = clearedNote?.last_updated || utils.getCurrentTimeString();
+      this.updateNoteUI({
+        note_id: noteData.note_id,
+        title: noteData.title || 'Untitled',
+        content: clearedContent,
+        folder_id: noteData.folder_id || DEFAULT_FOLDER_ID,
+        last_updated: clearedNote?.last_updated || utils.getCurrentTimeString(),
+      }, { addToRecents: false });
+    }
+
+    await this.loadFolders();
+    await this.loadNotes(noteData.folder_id || DEFAULT_FOLDER_ID);
+    return newTitle;
+  },
+
   maybeScheduleOversizedDefaultNotePrompt(note) {
     if (!note || !this.isDefaultNoteId(note.note_id)) {
       if (!this.isDefaultNoteId(this._oversizedDefaultNoteState?.noteId)) {
@@ -419,7 +610,7 @@ const mixin = {
     }
 
     const contentLength = (note.content || "").length;
-    if (contentLength <= 10000) {
+    if (contentLength <= DEFAULT_NOTE_BIG_NOTE_THRESHOLD) {
       return;
     }
 
@@ -457,7 +648,7 @@ const mixin = {
     }
 
     const shouldMove = confirm(
-      "The default note is larger than 10,000 characters and may load slowly. Move its content to a new note inside the \"default\" folder?"
+      "The default note is larger than 15,000 characters. Copy its content to a new note in the default folder and clear the default note now?"
     );
 
     if (!shouldMove) {
@@ -489,94 +680,11 @@ const mixin = {
 
   async moveOversizedDefaultNoteContent(noteData) {
     const folderId = await this.ensureDefaultFolderExists();
-    const timestamp = utils.getCurrentTimeString().replace(/\D/g, "");
-    const newTitle = `default_${timestamp}`;
-    const newNoteId = `${newTitle}_${currentUser.userId || "user"}`;
-
-    const createPayload = {
-      note_id: newNoteId,
-      title: newTitle,
-      content: noteData.content,
-      folder_id: folderId,
-    };
-
-    const createResult = await this.apiRequest("POST", "/notes", createPayload, false, true);
-    if (!createResult || !createResult.success) {
-      this.showToast("Failed to move default note content. Please try again later.");
-      const error = new Error("Failed to create new note for oversized default note.");
-      error._notaiNotified = true;
-      throw error;
-    }
-
-    const clearedContent = "<br><br>";
-    let clearedNote = null;
-
-    if (this.currentNoteId === noteData.note_id) {
-      const titleElement = document.getElementById("noteTitle");
-      if (titleElement) {
-        titleElement.textContent = noteData.title || "default_note";
-      }
-      this.editor.innerHTML = clearedContent;
-      this.resetHistoryWithCurrentContent();
-
-      try {
-        await this.saveNote(true);
-        clearedNote = await this.apiRequest("GET", `/notes/${noteData.note_id}`, null, false, true);
-      } catch (error) {
-        this.showToast("Default note content moved, but clearing it failed. Please try saving manually.", "error");
-        const err = error instanceof Error ? error : new Error("Failed to save cleared default note.");
-        err._notaiNotified = true;
-        throw err;
-      }
-    } else {
-      const clearPayload = {
-        note_id: noteData.note_id,
-        title: noteData.title || "default_note",
-        content: clearedContent,
-        folder_id: noteData.folder_id || "1733485657799jj0.5911120915160637",
-      };
-
-      const clearResult = await this.apiRequest("POST", "/notes", clearPayload, false, true);
-      if (!clearResult || !clearResult.success) {
-        this.showToast("New note created but clearing the default note failed. Please clear it manually.", "error");
-        const error = new Error("Failed to clear default note after moving content.");
-        error._notaiNotified = true;
-        throw error;
-      }
-      clearedNote = await this.apiRequest("GET", `/notes/${noteData.note_id}`, null, false, true);
-    }
-
-    if (!clearedNote || clearedNote.error) {
-      clearedNote = {
-        ...noteData,
-        content: clearedContent,
-        last_updated: new Date().toISOString(),
-      };
-    }
-
-    if ((clearedNote.content || "") !== clearedContent) {
-      this.showToast("Default note could not be cleared. Please clear it manually.", "error");
-      const error = new Error("Cleared default note still contains original content.");
-      error._notaiNotified = true;
-      throw error;
-    }
-
-    let movedNote = await this.apiRequest("GET", `/notes/${newNoteId}`, null, false, true);
-    if (!movedNote || movedNote.error) {
-      movedNote = { ...createPayload, last_updated: new Date().toISOString() };
-    }
-
-    await this.updateNoteCache(newNoteId, movedNote);
-    await this.updateNoteCache(noteData.note_id, clearedNote);
-
-    if (this.currentNoteId === noteData.note_id) {
-      this.updateNoteUI(clearedNote);
-    }
-
-    await this.loadFolders();
-    await this.loadNotes(noteData.folder_id || "1733485657799jj0.5911120915160637");
-
-    this.showToast(`Moved default note content to "${newTitle}" in folder "default".`, "success");
+    const newTitle = await this.moveNoteContentToNewNote(noteData, {
+      folderId,
+      titlePrefix: 'default',
+    });
+    this.showToast(`Copied default note content to "${newTitle}" in folder "default" and cleared the default note.`, "success");
   },
 
   async loadNote(note_id, options = {}) {
@@ -603,6 +711,9 @@ const mixin = {
     } else {
       this.resetOversizedDefaultNoteState();
     }
+    this.resetNoteSizePolicyState({
+      noteId: note_id,
+    });
 
     if (isSwitchingNote) {
       this.saveNote();
@@ -621,6 +732,7 @@ const mixin = {
         this.updateNoteUI(cachedNote);
         updateRouteIfNeeded(cachedNote);
         this.maybeScheduleOversizedDefaultNotePrompt(cachedNote);
+        this.syncCurrentNoteSizePolicy({ notify: true });
         console.log('Loaded note from cache');
       }
 
@@ -654,6 +766,7 @@ const mixin = {
           this.updateNoteUI(note, { addToRecents: isSwitchingNote });
           updateRouteIfNeeded(note);
           this.maybeScheduleOversizedDefaultNotePrompt(note);
+          this.syncCurrentNoteSizePolicy({ notify: true });
 
 
         }
@@ -681,11 +794,10 @@ const mixin = {
     document.getElementById("noteTitle").textContent = note.title || "";
     this.currentNoteId = note.note_id;
     this.currentNoteTitle = note.title;
+    this.currentNoteFolderId = note.folder_id || DEFAULT_FOLDER_ID;
     this.lastUpdated = note.last_updated;
     // Ensure AI blocks have controls even when loading from storage
     this.ensureGroupControls();
-    // Re-attach after a tick to cover late-rendered content
-    setTimeout(() => this.ensureGroupControls(), 0);
     // Reset history baseline for this note
     this.resetHistoryWithCurrentContent();
     //log last updated time
@@ -698,6 +810,7 @@ const mixin = {
 
     // Update table of contents
     this.updateTableOfContents();
+    this.syncCurrentNoteSizePolicy();
 
     // Set lazy loading for media elements
     const mediaElements = this.editor.querySelectorAll('img, iframe, video, audio');
@@ -715,8 +828,6 @@ const mixin = {
       const response = await cache.match(`note-${note_id}`);
       if (response) {
         const data = await response.json();
-        // After reading from cache, ensure controls are attached if content will be used
-        setTimeout(() => this.ensureGroupControls(), 0);
         return data;
       }
       return null;

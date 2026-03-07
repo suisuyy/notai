@@ -1,4 +1,9 @@
-import { DEFAULT_SYSTEM_PROMPT, DEFAULT_MODELS } from './constants.js';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_MODELS,
+  DEFAULT_NOTE_BIG_NOTE_THRESHOLD,
+  NOTE_SIZE_LIMIT_FOR_APPEND,
+} from './constants.js';
 import coreMixin from './core.js';
 import aiMixin from './ai.js';
 import commentsMixin from './comments.js';
@@ -15,6 +20,8 @@ class HTMLEditor {
   constructor() {
     // Define DEFAULT_SYSTEM_PROMPT as a class property
     this.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
+    this.DEFAULT_NOTE_BIG_NOTE_THRESHOLD = DEFAULT_NOTE_BIG_NOTE_THRESHOLD;
+    this.NOTE_SIZE_LIMIT_FOR_APPEND = NOTE_SIZE_LIMIT_FOR_APPEND;
 
     // Initialize core editor elements with error checking
     const editor = document.getElementById("editor");
@@ -73,11 +80,19 @@ class HTMLEditor {
     this.lastSavedContent = "";
     this.lastUpdated = null;
     this.lastInteractionTime = 0;
+    this.currentNoteFolderId = null;
     this._oversizedDefaultNoteState = {
       noteId: null,
       status: 'idle',
       timer: null,
       noteData: null,
+    };
+    this._noteSizePolicyState = {
+      noteId: null,
+      contentLength: 0,
+      blockInsertions: false,
+      blockReason: '',
+      noticeShown: false,
     };
     this._currentNoteSearchMatches = [];
     this._workspaceSearchResults = null;
@@ -116,6 +131,11 @@ class HTMLEditor {
 
     // Add title auto-save
     const titleElement = document.getElementById("noteTitle");
+    titleElement.addEventListener('beforeinput', (event) => {
+      if (this.shouldPreventGrowthForCurrentNote(event, 'title')) {
+        event.preventDefault();
+      }
+    });
     titleElement.addEventListener('input', () => this.delayedSaveNote());
     this.currentBlock = null;
     this.content = ""; // Store markdown content

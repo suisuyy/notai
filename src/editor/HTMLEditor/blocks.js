@@ -1,4 +1,55 @@
 const mixin = {
+  getGroupEditableTargets(groupEl) {
+    if (!groupEl) {
+      return [];
+    }
+
+    const isAsk = groupEl.classList.contains('ask-group');
+    const isComment = groupEl.classList.contains('comment-group');
+    const selector = isAsk
+      ? '.ask-content'
+      : isComment
+        ? '.comment-content'
+        : '';
+
+    if (!selector) {
+      return [groupEl];
+    }
+
+    const allTargets = Array.from(groupEl.querySelectorAll(selector));
+    if (!allTargets.length) {
+      return [groupEl];
+    }
+
+    const visibleTargets = allTargets.filter((element) => {
+      const style = window.getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+
+    return visibleTargets.length ? visibleTargets : [allTargets[0]];
+  },
+
+  setGroupEditableState(groupEl, isEditable) {
+    if (!groupEl) {
+      return;
+    }
+
+    const targets = this.getGroupEditableTargets(groupEl);
+    groupEl.dataset.groupEditing = isEditable ? '1' : '0';
+    groupEl.classList.toggle('is-group-editing', isEditable);
+    groupEl.setAttribute('contenteditable', 'false');
+
+    targets.forEach((target) => {
+      target.setAttribute('contenteditable', isEditable ? 'true' : 'false');
+      target.spellcheck = false;
+      target.setAttribute('autocorrect', 'off');
+      target.setAttribute('autocapitalize', 'off');
+    });
+
+    if (isEditable) {
+      targets[0]?.focus?.();
+    }
+  },
   getBlockContext() {
     const selection = window.getSelection();
     if (!selection.rangeCount) return null;
@@ -390,9 +441,15 @@ const mixin = {
   attachGroupControls(groupEl) {
     try {
       if (!groupEl) return;
-      // If controls already exist (e.g., after reload), remove them so we can reattach fresh listeners
+      if (groupEl.dataset.controlsAttached === '1' && groupEl.querySelector('.group-controls')) {
+        return;
+      }
+      // If controls already exist but the marker is stale, reuse the existing element instead of rebuilding.
       const existingControls = groupEl.querySelector('.group-controls');
-      if (existingControls) existingControls.remove();
+      if (existingControls) {
+        groupEl.dataset.controlsAttached = '1';
+        return;
+      }
       // Position container so controls are anchored to this block
       if (getComputedStyle(groupEl).position === 'static') groupEl.style.position = 'relative';
 
@@ -432,14 +489,13 @@ const mixin = {
       // Toggle editability
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const isEditable = groupEl.getAttribute('contenteditable') === 'true';
+        const isEditable = groupEl.dataset.groupEditing === '1';
         if (isEditable) {
-          groupEl.setAttribute('contenteditable', 'false');
+          this.setGroupEditableState(groupEl, false);
           toggleBtn.innerHTML = '<span aria-label="Edit" title="Edit" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;">✏️</span>';
         } else {
-          groupEl.setAttribute('contenteditable', 'true');
+          this.setGroupEditableState(groupEl, true);
           toggleBtn.innerHTML = '<span aria-label="Lock" title="Lock" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;">🔒</span>';
-          groupEl.focus();
         }
       });
 
@@ -472,19 +528,23 @@ const mixin = {
     try {
       const groups = this.editor.querySelectorAll('.ask-group, .comment-group');
       groups.forEach((g) => this.attachGroupControls(g));
-      // Also watch for newly inserted groups
-      const obs = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-          m.addedNodes.forEach((node) => {
-            if (!(node instanceof HTMLElement)) return;
-            if (node.classList && (node.classList.contains('ask-group') || node.classList.contains('comment-group'))) {
-              this.attachGroupControls(node);
-            }
-            node.querySelectorAll && node.querySelectorAll('.ask-group, .comment-group').forEach((el) => this.attachGroupControls(el));
-          });
-        }
-      });
-      obs.observe(this.editor, { childList: true, subtree: true });
+      // Watch for newly inserted groups once per editor instance.
+      if (!this._groupControlsObserver) {
+        this._groupControlsObserver = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            m.addedNodes.forEach((node) => {
+              if (!(node instanceof HTMLElement)) return;
+              if (node.classList && (node.classList.contains('ask-group') || node.classList.contains('comment-group'))) {
+                this.attachGroupControls(node);
+              }
+              node.querySelectorAll && node.querySelectorAll('.ask-group, .comment-group').forEach((el) => this.attachGroupControls(el));
+            });
+          }
+        });
+      } else {
+        this._groupControlsObserver.disconnect();
+      }
+      this._groupControlsObserver.observe(this.editor, { childList: true, subtree: true });
 
       // Ensure a default active tab + content is visible
       groups.forEach((g) => {
